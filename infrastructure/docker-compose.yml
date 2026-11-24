@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cryptiq-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: cryptiq_user
+      POSTGRES_PASSWORD: cryptiq_secure_dev_password
+      POSTGRES_DB: cryptiq_core
+    ports:
+      - "5432:5432"
+    volumes:
+      - cryptiq_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cryptiq_user -d cryptiq_core"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ../apps/api
+      dockerfile: Dockerfile
+    container_name: cryptiq-api
+    restart: always
+    environment:
+      DATABASE_URL: postgresql+asyncpg://cryptiq_user:cryptiq_secure_dev_password@postgres:5432/cryptiq_core
+      ENVIRONMENT: development
+      CORS_ORIGINS: http://localhost:3000,http://localhost:19006
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  cryptiq_pgdata:

@@ -1,0 +1,35 @@
+export const crawlerTokens = {
+  dimensions: {
+    bodyRadius: 10,
+    legSegments: 3,
+    coxaLength: 12,
+    femurLength: 22,
+    tibiaLength: 28,
+    totalSpan: 70,
+  },
+  colors: {
+    chassis: '#08090D',
+    chassisStroke: '#00F0FF',
+    joint: '#FF2A85',
+    eye: '#00F0FF',
+    legStroke: 'rgba(0, 240, 255, 0.75)',
+    targetHighlight: '#00F0FF',
+    scanBeam: 'rgba(255, 42, 133, 0.4)',
+    hudAmber: '#FFB800',
+    laserTrace: 'rgba(0, 240, 255, 0.15)',
+  },
+  physics: {
+    maxSpeed: 4.5,
+    acceleration: 0.18,
+    friction: 0.88,
+    rotationSpeed: 0.08,
+    strideThreshold: 24,
+    stepElevation: 8,
+    dwellTimeMs: 2400,
+  },
+  scan: {
+    reticleRadius: 28,
+    boxPadding: 12,
+    glitchDurationMs: 600,
+  },
+} as const;

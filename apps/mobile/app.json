@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Cryptiq",
+    "slug": "cryptiq-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "cryptiq",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#08090D"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#08090D"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}

@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Next.js
+apps/web/.next/
+apps/web/out/
+
+# Expo / React Native
+apps/mobile/.expo/
+apps/mobile/dist/
+apps/mobile/web-build/
+
+# Python / FastAPI
+apps/api/__pycache__/
+apps/api/*/__pycache__/
+apps/api/*/*/__pycache__/
+apps/api/.venv/
+apps/api/*.pyc
+.env
+.env.local
+.env.*.local
+*.log
+
+# Build Outputs
+dist/
+build/
+*.tsbuildinfo
+
+# OS & IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

@@ -35,7 +35,7 @@ export default function LoginPage() {
         password,
         rememberMe,
       });
-      router.push('/');
+      router.push('/dashboard');
     } catch (err: any) {
       setErrorMessage(err.message || 'Invalid email or password.');
     } finally {

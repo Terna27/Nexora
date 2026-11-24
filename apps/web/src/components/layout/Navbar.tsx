@@ -119,17 +119,20 @@ export const Navbar: React.FC = () => {
             {/* Auth Actions */}
             {user ? (
               <div className="hidden sm:flex items-center gap-2">
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-light-bg dark:bg-dark-card border border-light-border dark:border-dark-border text-xs">
+                <Link
+                  href="/dashboard"
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-light-bg dark:bg-dark-card border border-light-border dark:border-dark-border text-xs hover:border-brand-coral transition-colors"
+                >
                   <div className="w-5 h-5 rounded-full bg-brand-coral/15 text-brand-coral flex items-center justify-center font-bold text-[10px]">
                     {user.fullName.charAt(0).toUpperCase()}
                   </div>
                   <span className="font-semibold text-light-textPrimary dark:text-dark-textPrimary max-w-[100px] truncate">
-                    {user.fullName.split(' ')[0]}
+                    Dashboard
                   </span>
                   <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold">
                     {user.role}
                   </span>
-                </div>
+                </Link>
                 <button
                   onClick={() => logout()}
                   title="Sign Out"

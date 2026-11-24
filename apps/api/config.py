@@ -12,13 +12,17 @@ class Settings(BaseSettings):
 
     ENVIRONMENT: str = "development"
     PROJECT_NAME: str = "Cryptiq Core API"
+    PORT: int = 8000
     API_V1_PREFIX: str = "/api/v1"
     DATABASE_URL: str = "postgresql+asyncpg://cryptiq_user:cryptiq_secure_dev_password@localhost:5432/cryptiq_core"
     CORS_ORIGINS: Union[List[str], str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:19006",
-        "http://localhost:8081"
+        "http://localhost:8081",
+        "https://nexora.onrender.com",
+        "https://nexora-web.onrender.com",
+        "https://nexora-frontend.onrender.com",
     ]
     SECRET_KEY: str = "cryptiq_super_secret_development_key_change_in_production"
 

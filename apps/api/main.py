@@ -49,6 +49,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS if isinstance(settings.CORS_ORIGINS, list) else [settings.CORS_ORIGINS],
+    allow_origin_regex=r"https://.*\.onrender\.com",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -71,5 +72,7 @@ async def root():
     }
 
 if __name__ == "__main__":
+    import os
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    port = int(os.environ.get("PORT", getattr(settings, "PORT", 8000)))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=(settings.ENVIRONMENT == "development"))

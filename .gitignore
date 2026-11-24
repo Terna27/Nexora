@@ -15,8 +15,11 @@ apps/mobile/web-build/
 apps/api/__pycache__/
 apps/api/*/__pycache__/
 apps/api/*/*/__pycache__/
+apps/api/.venv
 apps/api/.venv/
+.venv
 apps/api/*.pyc
+*.backup
 .env
 .env.local
 .env.*.local

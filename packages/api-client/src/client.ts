@@ -19,10 +19,31 @@ import { ILLUSTRATIVE_ASSET_PRICES, INITIAL_ILLUSTRATIVE_LEDGER } from './mockDa
 
 export class CryptiqApiClient {
   private baseUrl: string;
+  private token: string | null = null;
 
   constructor(baseUrl?: string) {
     const envUrl = typeof process !== 'undefined' && process.env ? process.env.NEXT_PUBLIC_API_URL : undefined;
-    this.baseUrl = baseUrl || envUrl || 'http://localhost:8000';
+    const isBrowser = typeof window !== 'undefined';
+    const isNonLocalhost = isBrowser && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+    const isProdEnv = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'production';
+    const defaultProdUrl = 'https://nexora-edz1.onrender.com';
+    this.baseUrl = baseUrl || envUrl || (isNonLocalhost || isProdEnv ? defaultProdUrl : 'http://localhost:8000');
+
+    if (isBrowser) {
+      try {
+        this.token = localStorage.getItem('nexora_token');
+      } catch {
+        this.token = null;
+      }
+    }
+  }
+
+  private getAuthHeaders(extraHeaders: Record<string, string> = {}): Record<string, string> {
+    const headers: Record<string, string> = { ...extraHeaders };
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+    return headers;
   }
 
   /**
@@ -150,10 +171,18 @@ export class CryptiqApiClient {
       credentials: 'include',
       body: JSON.stringify(credentials),
     });
-    const data = await res.json();
+    const data: LoginResponse = await res.json();
     if (!res.ok) {
-      const err = typeof data.detail === 'string' ? data.detail : 'Invalid email or password';
+      const err = typeof (data as any).detail === 'string' ? (data as any).detail : 'Invalid email or password';
       throw new Error(err || 'Invalid email or password');
+    }
+    if (data.token) {
+      this.token = data.token;
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('nexora_token', data.token);
+        } catch {}
+      }
     }
     return data;
   }
@@ -164,8 +193,15 @@ export class CryptiqApiClient {
   async logout(): Promise<GenericAuthResponse> {
     const res = await fetch(`${this.baseUrl}/api/v1/auth/logout`, {
       method: 'POST',
+      headers: this.getAuthHeaders(),
       credentials: 'include',
     });
+    this.token = null;
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem('nexora_token');
+      } catch {}
+    }
     const data = await res.json();
     return data;
   }
@@ -178,6 +214,7 @@ export class CryptiqApiClient {
       const res = await fetch(`${this.baseUrl}/api/v1/auth/me`, {
         cache: 'no-store',
         credentials: 'include',
+        headers: this.getAuthHeaders(),
       });
       if (!res.ok) return null;
       return await res.json();
@@ -255,6 +292,7 @@ export class CryptiqApiClient {
     const res = await fetch(`${this.baseUrl}/api/v1/auth/sessions`, {
       cache: 'no-store',
       credentials: 'include',
+      headers: this.getAuthHeaders(),
     });
     if (!res.ok) return [];
     const data: SessionsListResponse = await res.json();
@@ -268,6 +306,7 @@ export class CryptiqApiClient {
     const res = await fetch(`${this.baseUrl}/api/v1/auth/sessions/${sessionId}`, {
       method: 'DELETE',
       credentials: 'include',
+      headers: this.getAuthHeaders(),
     });
     const data = await res.json();
     if (!res.ok) {

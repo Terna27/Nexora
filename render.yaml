@@ -1,0 +1,31 @@
+services:
+  # Nexora Backend API
+  - type: web
+    name: nexora-api
+    runtime: python
+    rootDir: apps/api
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: PORT
+        value: 8000
+
+  # Nexora Frontend Web
+  - type: web
+    name: nexora-web
+    runtime: node
+    buildCommand: pnpm install && pnpm build:packages && pnpm build:web
+    startCommand: pnpm --filter @cryptiq/web start
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.0
+      - key: NEXT_PUBLIC_API_URL
+        value: https://nexora-edz1.onrender.com
+      - key: NODE_ENV
+        value: production

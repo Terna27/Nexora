@@ -81,7 +81,12 @@ async def get_current_session(
     db: AsyncSession = Depends(get_db),
     cryptiq_session: Optional[str] = Cookie(None)
 ) -> UserSessionModel:
-    raw_token = cryptiq_session
+    raw_token = (
+        request.cookies.get(settings.SESSION_COOKIE_NAME)
+        or request.cookies.get("nexora_session")
+        or request.cookies.get("cryptiq_session")
+        or cryptiq_session
+    )
     if not raw_token:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
@@ -263,15 +268,29 @@ async def login(
 
     # Set secure HttpOnly cookie
     max_age = int(timedelta(hours=duration_hours).total_seconds())
+    is_prod = settings.ENVIRONMENT == "production" or settings.SECURE_COOKIES
+    cookie_samesite = "none" if is_prod else settings.COOKIE_SAME_SITE
+    cookie_secure = True if is_prod else settings.SECURE_COOKIES
+
     response.set_cookie(
         key=settings.SESSION_COOKIE_NAME,
         value=raw_session_token,
         max_age=max_age,
         httponly=True,
-        secure=settings.SECURE_COOKIES,
-        samesite=settings.COOKIE_SAME_SITE,
+        secure=cookie_secure,
+        samesite=cookie_samesite,
         path="/",
     )
+    if settings.SESSION_COOKIE_NAME != "nexora_session":
+        response.set_cookie(
+            key="nexora_session",
+            value=raw_session_token,
+            max_age=max_age,
+            httponly=True,
+            secure=cookie_secure,
+            samesite=cookie_samesite,
+            path="/",
+        )
 
     await record_audit_event(db, user.id, "LOGIN_SUCCESS", ip)
 
@@ -285,7 +304,8 @@ async def login(
             role=user.role,
             is_verified=user.is_verified,
             created_at=user.created_at,
-        )
+        ),
+        token=raw_session_token,
     )
 
 @router.post("/logout", response_model=GenericAuthResponse)
@@ -297,12 +317,25 @@ async def logout(
     session.revoked_at = datetime.now(timezone.utc)
     await db.commit()
 
+    is_prod = settings.ENVIRONMENT == "production" or settings.SECURE_COOKIES
+    cookie_samesite = "none" if is_prod else settings.COOKIE_SAME_SITE
+    cookie_secure = True if is_prod else settings.SECURE_COOKIES
+
     response.delete_cookie(
         key=settings.SESSION_COOKIE_NAME,
         path="/",
         httponly=True,
-        samesite=settings.COOKIE_SAME_SITE,
+        samesite=cookie_samesite,
+        secure=cookie_secure,
     )
+    if settings.SESSION_COOKIE_NAME != "nexora_session":
+        response.delete_cookie(
+            key="nexora_session",
+            path="/",
+            httponly=True,
+            samesite=cookie_samesite,
+            secure=cookie_secure,
+        )
 
     return GenericAuthResponse(success=True, message="Logged out successfully.")
 

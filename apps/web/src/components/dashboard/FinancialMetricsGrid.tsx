@@ -11,14 +11,15 @@ import {
 } from 'lucide-react';
 
 export const FinancialMetricsGrid: React.FC = () => {
-  // Strict non-negotiable rule: Real user records only.
-  // Authoritative user state: newly registered account has $0.00 settled records.
+  // Strict financial data integrity rule:
+  // A missing portfolio metric endpoint must NEVER be presented as proof of $0.00.
+  // Display explicit unavailable state ('—') with pending sync badges.
   const metrics = {
-    totalEarningsUsd: 0.00,
-    activePrincipalUsd: 0.00,
-    accruedDailyYieldUsd: 0.00,
-    pendingYieldUsd: 0.00,
-    totalWithdrawnUsd: 0.00,
+    totalEarningsUsd: null as number | null,
+    activePrincipalUsd: null as number | null,
+    accruedDailyYieldUsd: null as number | null,
+    pendingYieldUsd: null as number | null,
+    totalWithdrawnUsd: null as number | null,
   };
 
   return (
@@ -38,14 +39,14 @@ export const FinancialMetricsGrid: React.FC = () => {
           </div>
 
           <div className="text-2xl sm:text-3xl font-extrabold font-mono tracking-tight text-white tabular-nums my-1">
-            ${metrics.totalEarningsUsd.toFixed(2)}
+            {metrics.totalEarningsUsd !== null ? `$${metrics.totalEarningsUsd.toFixed(2)}` : '—'}
           </div>
         </div>
 
         <div className="pt-3 border-t border-white/20 mt-2 flex items-center justify-between text-[11px] text-white/90">
-          <span>All-time settled</span>
+          <span>Subledger status</span>
           <span className="font-mono text-[10px] bg-white/20 px-2 py-0.5 rounded-full">
-            0 cycles
+            Sync pending
           </span>
         </div>
       </div>
@@ -63,14 +64,14 @@ export const FinancialMetricsGrid: React.FC = () => {
           </div>
 
           <div className="text-2xl sm:text-3xl font-extrabold font-mono tracking-tight text-[#141518] dark:text-white tabular-nums my-1">
-            ${metrics.activePrincipalUsd.toFixed(2)}
+            {metrics.activePrincipalUsd !== null ? `$${metrics.activePrincipalUsd.toFixed(2)}` : '—'}
           </div>
         </div>
 
         <div className="pt-3 border-t border-light-border dark:border-dark-border mt-2 flex items-center justify-between text-[11px] text-[#64748B]">
           <span>Allocation Status</span>
-          <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-[10px] font-mono text-[#64748B] font-semibold">
-            Standby
+          <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-mono font-semibold">
+            Unavailable
           </span>
         </div>
       </div>
@@ -88,14 +89,14 @@ export const FinancialMetricsGrid: React.FC = () => {
           </div>
 
           <div className="text-2xl sm:text-3xl font-extrabold font-mono tracking-tight text-[#141518] dark:text-white tabular-nums my-1">
-            ${metrics.accruedDailyYieldUsd.toFixed(2)}
+            {metrics.accruedDailyYieldUsd !== null ? `$${metrics.accruedDailyYieldUsd.toFixed(2)}` : '—'}
           </div>
         </div>
 
         <div className="pt-3 border-t border-light-border dark:border-dark-border mt-2 flex items-center justify-between text-[11px] text-[#64748B]">
-          <span>Settled: $0.00</span>
+          <span>Settled: —</span>
           <span className="text-[10px] font-mono text-[#64748B]">
-            Pending: $0.00
+            Pending: —
           </span>
         </div>
       </div>
@@ -113,14 +114,14 @@ export const FinancialMetricsGrid: React.FC = () => {
           </div>
 
           <div className="text-2xl sm:text-3xl font-extrabold font-mono tracking-tight text-[#141518] dark:text-white tabular-nums my-1">
-            ${metrics.totalWithdrawnUsd.toFixed(2)}
+            {metrics.totalWithdrawnUsd !== null ? `$${metrics.totalWithdrawnUsd.toFixed(2)}` : '—'}
           </div>
         </div>
 
         <div className="pt-3 border-t border-light-border dark:border-dark-border mt-2 flex items-center justify-between text-[11px] text-[#64748B]">
-          <span>All-time disbursements</span>
+          <span>Disbursements</span>
           <span className="text-[10px] font-mono text-[#64748B]">
-            Completed: 0
+            0 settled
           </span>
         </div>
       </div>

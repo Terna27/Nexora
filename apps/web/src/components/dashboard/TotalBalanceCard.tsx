@@ -26,24 +26,30 @@ export const TotalBalanceCard: React.FC<TotalBalanceCardProps> = ({
 }) => {
   const [valuationCurrency, setValuationCurrency] = useState<'USD' | 'BTC' | 'ETH'>('USD');
 
-  // Real authoritative user balance (since user balance endpoint is not yet populated by backend)
-  // Strict non-negotiable rule: NEVER fabricate fake numbers! Authoritative user balance = $0.00
-  const userBalanceUsd = 0.00;
+  // Strict financial data integrity rule:
+  // A missing or unintegrated portfolio balance endpoint must NEVER be presented as proof of a $0.00 balance.
+  // When backend user portfolio subledger is unavailable or pending integration, display explicit unavailable state.
+  const userBalanceUsd: number | null = null;
+  const isPortfolioBalanceAvailable = userBalanceUsd !== null;
 
   // Conversion for display based on live quotes
   const displayBalance = React.useMemo(() => {
+    if (userBalanceUsd === null) {
+      return '—';
+    }
+    const balance: number = userBalanceUsd;
     if (valuationCurrency === 'USD') {
-      return '$0.00';
+      return `$${balance.toFixed(2)}`;
     }
     if (valuationCurrency === 'BTC') {
       const btcPrice = quotes?.BTC?.unitPriceUsd || 1;
-      return `${(userBalanceUsd / btcPrice).toFixed(8)} BTC`;
+      return `${(balance / btcPrice).toFixed(8)} BTC`;
     }
     if (valuationCurrency === 'ETH') {
       const ethPrice = quotes?.ETH?.unitPriceUsd || 1;
-      return `${(userBalanceUsd / ethPrice).toFixed(6)} ETH`;
+      return `${(balance / ethPrice).toFixed(6)} ETH`;
     }
-    return '$0.00';
+    return '—';
   }, [valuationCurrency, quotes, userBalanceUsd]);
 
   const supportedAssets: { symbol: SupportedAsset; name: string; decimals: number }[] = [
@@ -91,13 +97,18 @@ export const TotalBalanceCard: React.FC<TotalBalanceCardProps> = ({
             <span className="text-3xl sm:text-4xl font-extrabold text-[#141518] dark:text-white font-mono tracking-tight tabular-nums">
               {displayBalance}
             </span>
-            {valuationCurrency === 'USD' && (
+            {isPortfolioBalanceAvailable && valuationCurrency === 'USD' && (
               <span className="text-xs font-mono font-semibold text-[#64748B]">USD</span>
+            )}
+            {!isPortfolioBalanceAvailable && (
+              <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-mono font-semibold">
+                Unavailable
+              </span>
             )}
           </div>
           <p className="text-[11px] text-[#64748B] dark:text-dark-textSecondary mt-1 flex items-center gap-1">
             <Info className="w-3 h-3 text-[#FF512F]" />
-            Authoritative functional NAV currency • No pending holds
+            Portfolio balance endpoint unavailable • Awaiting subledger sync
           </p>
         </div>
 
@@ -157,12 +168,12 @@ export const TotalBalanceCard: React.FC<TotalBalanceCardProps> = ({
                 </div>
 
                 <div className="text-right">
-                  {/* Real balance: 0.00000000 - Strict truth */}
+                  {/* Strict truth: subledger balance unavailable */}
                   <div className="text-xs font-mono font-bold text-[#141518] dark:text-white tabular-nums">
-                    0.00 <span className="text-[10px] text-[#64748B]">{asset.symbol}</span>
+                    — <span className="text-[10px] text-[#64748B]">{asset.symbol}</span>
                   </div>
-                  <div className="text-[10px] font-mono text-[#64748B]">
-                    $0.00 USD
+                  <div className="text-[10px] font-mono text-amber-600 dark:text-amber-400">
+                    Sync pending
                   </div>
                 </div>
               </div>

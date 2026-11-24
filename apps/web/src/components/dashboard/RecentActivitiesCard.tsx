@@ -135,7 +135,7 @@ export const RecentActivitiesCard: React.FC<RecentActivitiesCardProps> = ({
               No Personal Account Transactions
             </h4>
             <p className="text-xs text-[#64748B] dark:text-dark-textSecondary max-w-sm mt-1 leading-relaxed">
-              You haven't initiated any deposits, redemptions, or asset transfers yet. Once a transaction is submitted, it will appear here with full audit attestations.
+              Personal transaction journal endpoint unavailable • Awaiting user subledger integration. Once personal transactions are initiated and settled, they will appear here with full audit attestations.
             </p>
             <button
               onClick={() => setViewMode('PLATFORM_ATTESTATIONS')}
@@ -145,52 +145,67 @@ export const RecentActivitiesCard: React.FC<RecentActivitiesCardProps> = ({
             </button>
           </div>
         ) : (
-          // Real platform ledger attestations from `/api/v1/ledger/recent`
-          <div className="overflow-x-auto -mx-6 px-6">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-light-border dark:border-dark-border text-[10px] font-mono uppercase text-[#64748B] tracking-wider">
-                  <th className="py-2.5 font-semibold">Tx ID</th>
-                  <th className="py-2.5 font-semibold">Activity</th>
-                  <th className="py-2.5 font-semibold">Asset</th>
-                  <th className="py-2.5 font-semibold text-right">Amount</th>
-                  <th className="py-2.5 font-semibold">Status</th>
-                  <th className="py-2.5 font-semibold text-right">Attestation</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-light-border dark:divide-dark-border text-xs">
-                {filteredPlatformEntries.slice(0, 5).map((entry) => (
-                  <tr key={entry.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                    <td className="py-3 font-mono text-[11px] font-semibold text-[#141518] dark:text-white">
-                      {entry.id}
-                    </td>
-                    <td className="py-3">
-                      <div className="flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#FF512F]" />
-                        <span className="font-medium text-[#141518] dark:text-white">
-                          {entry.eventType.replace(/_/g, ' ')}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="py-3 font-mono font-semibold text-[#64748B]">
-                      {entry.asset}
-                    </td>
-                    <td className="py-3 text-right font-mono font-bold text-[#141518] dark:text-white tabular-nums">
-                      {entry.amount.toLocaleString()} <span className="text-[10px] font-normal text-[#64748B]">{entry.asset}</span>
-                    </td>
-                    <td className="py-3">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-mono font-semibold">
-                        <CheckCircle2 className="w-2.5 h-2.5" />
-                        {entry.status}
-                      </span>
-                    </td>
-                    <td className="py-3 text-right font-mono text-[11px] text-[#64748B]">
-                      {entry.txHash}
-                    </td>
+          <div>
+            {/* Prominent Institutional Ledger Disclaimer */}
+            <div className="mb-4 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2.5">
+              <ShieldCheck className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-semibold text-amber-900 dark:text-amber-200">
+                  Institutional Attestation Feed
+                </span>
+                <p className="text-[11px] text-amber-800 dark:text-amber-300 mt-0.5 leading-relaxed">
+                  These records reflect platform-wide rebalancing, custody sweeps, and algorithmic execution on the institutional ledger — <strong className="font-semibold underline">NOT</strong> activity from your personal account.
+                </p>
+              </div>
+            </div>
+
+            {/* Real platform ledger attestations from `/api/v1/ledger/recent` */}
+            <div className="overflow-x-auto -mx-6 px-6">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-light-border dark:border-dark-border text-[10px] font-mono uppercase text-[#64748B] tracking-wider">
+                    <th className="py-2.5 font-semibold">Tx ID</th>
+                    <th className="py-2.5 font-semibold">Activity</th>
+                    <th className="py-2.5 font-semibold">Asset</th>
+                    <th className="py-2.5 font-semibold text-right">Amount</th>
+                    <th className="py-2.5 font-semibold">Status</th>
+                    <th className="py-2.5 font-semibold text-right">Attestation</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-light-border dark:divide-dark-border text-xs">
+                  {filteredPlatformEntries.slice(0, 5).map((entry) => (
+                    <tr key={entry.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                      <td className="py-3 font-mono text-[11px] font-semibold text-[#141518] dark:text-white">
+                        {entry.id}
+                      </td>
+                      <td className="py-3">
+                        <div className="flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#FF512F]" />
+                          <span className="font-medium text-[#141518] dark:text-white">
+                            {entry.eventType.replace(/_/g, ' ')}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-3 font-mono font-semibold text-[#64748B]">
+                        {entry.asset}
+                      </td>
+                      <td className="py-3 text-right font-mono font-bold text-[#141518] dark:text-white tabular-nums">
+                        {entry.amount.toLocaleString()} <span className="text-[10px] font-normal text-[#64748B]">{entry.asset}</span>
+                      </td>
+                      <td className="py-3">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-mono font-semibold">
+                          <CheckCircle2 className="w-2.5 h-2.5" />
+                          {entry.status}
+                        </span>
+                      </td>
+                      <td className="py-3 text-right font-mono text-[11px] text-[#64748B]">
+                        {entry.txHash}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>

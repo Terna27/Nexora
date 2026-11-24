@@ -100,18 +100,18 @@ export const DepositModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                 MPC Segregated Account Policy
               </div>
               <p className="text-[11px] leading-relaxed">
-                Direct deposits are recognized upon network block finality. Funds are settled onto the investment vehicle balance sheet and credited as investor equity upon NAV cycle cut-off.
+                Nexora deposits are held in multi-party computation (MPC) cold vaults under segregated custodial custody. Capital will be recognized upon network finality and settled into vehicle investor units during the Friday NAV cycle.
               </p>
             </div>
 
             {/* Custodial Whitelist Notice */}
-            <div className="p-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 text-xs text-amber-700 dark:text-amber-400">
+            <div className="p-3.5 rounded-2xl border border-amber-500/20 bg-amber-500/5 text-xs text-amber-800 dark:text-amber-300">
               <div className="flex items-start gap-2">
-                <Info className="w-4 h-4 shrink-0 mt-0.5" />
+                <Info className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
                 <div>
-                  <span className="font-semibold">Deposit Routing Verification:</span>
-                  <p className="text-[11px] mt-0.5">
-                    To activate dedicated deposit addresses, identity verification and source of funds attestations must be approved by the independent custodian.
+                  <span className="font-semibold text-amber-900 dark:text-amber-200">Deposit Rails in Pre-Launch Staging:</span>
+                  <p className="text-[11px] mt-0.5 leading-relaxed">
+                    Direct automated address assignment is currently in institutional staging. Capital deposits and KYC whitelisting will activate in the next production release.
                   </p>
                 </div>
               </div>
@@ -126,13 +126,10 @@ export const DepositModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
               Close
             </button>
             <button
-              onClick={() => {
-                alert('Custodial deposit rail instructions have been requested from compliance.');
-                onClose();
-              }}
-              className="px-5 py-2 rounded-full bg-[#141518] text-white text-xs font-bold hover:bg-[#252830] transition-colors shadow-sm"
+              disabled={true}
+              className="px-5 py-2 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-400 text-xs font-bold cursor-not-allowed shadow-none"
             >
-              Request Deposit Wire / Address
+              Deposit Rails in Pre-Launch Staging
             </button>
           </div>
         </motion.div>
@@ -191,13 +188,13 @@ export const WithdrawModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
               <div className="flex items-center justify-between text-xs text-[#64748B]">
                 <span>Settled Investor Equity</span>
                 <span className="font-mono font-bold text-[#141518] dark:text-white">
-                  $0.00 USD
+                  — USD
                 </span>
               </div>
               <div className="flex items-center justify-between text-xs text-[#64748B]">
                 <span>Available for Immediate Sweep</span>
-                <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                  $0.00 USD
+                <span className="font-mono font-bold text-[#64748B]">
+                  — USD
                 </span>
               </div>
             </div>
@@ -208,7 +205,7 @@ export const WithdrawModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                 Weekly Liquidity Cycle Rule
               </div>
               <p className="text-[11px] leading-relaxed">
-                Nexora enforces a structured weekly liquidity redemption cycle. Redemptions submitted before Thursday 23:59 UTC are settled based on the Friday close Net Asset Value (NAV).
+                Nexora enforces a structured weekly liquidity redemption cycle under approved fund rules. Redemptions submitted before Thursday 23:59 UTC are settled based on Friday close Net Asset Value (NAV). Redemptions require active settled investor units.
               </p>
             </div>
           </div>
@@ -224,7 +221,7 @@ export const WithdrawModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
               disabled={true}
               className="px-5 py-2 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-400 text-xs font-bold cursor-not-allowed"
             >
-              No Settled Balance to Withdraw
+              Redemptions Unavailable (Pre-Launch)
             </button>
           </div>
         </motion.div>
@@ -284,7 +281,7 @@ export const LayersModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                 1. Nexora Operating Company (Platform Ledger)
               </h4>
               <p className="text-[#64748B] text-[11px] leading-relaxed">
-                Maintains client relationships, KYC attestations, and technical frontends. Never co-mingles operating capital with client pool assets.
+                Operating entity providing client interface, KYC/AML compliance attestations, and platform technology. Operating accounts are strictly isolated and never co-mingled with vehicle or client funds.
               </p>
             </div>
 
@@ -293,16 +290,25 @@ export const LayersModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                 2. Nexora Investment Vehicle (Vehicle Subledger)
               </h4>
               <p className="text-[#64748B] text-[11px] leading-relaxed">
-                Special purpose vehicle issuing fractional investor units with append-only NAV valuation records calculated in USD functional currency.
+                Bankruptcy-remote fund vehicle issuing fractional investor units. Maintains immutable, append-only double-entry NAV valuation records in USD functional currency.
               </p>
             </div>
 
             <div className="p-3 rounded-2xl bg-[#F4F5F7] dark:bg-dark-bg/60 border border-light-border dark:border-dark-border">
               <h4 className="font-bold text-[#141518] dark:text-white mb-1">
-                3. Independent Custodian & External Managers
+                3. External Investment Manager
               </h4>
               <p className="text-[#64748B] text-[11px] leading-relaxed">
-                Multi-party computation (MPC) cold vaults holding native BTC, ETH, SOL, and USDT under segregated bankruptcy-remote trusts.
+                Regulated asset manager executing systematic rebalancing and liquidity strategies under strict mandate parameters and risk boundaries.
+              </p>
+            </div>
+
+            <div className="p-3 rounded-2xl bg-[#F4F5F7] dark:bg-dark-bg/60 border border-light-border dark:border-dark-border">
+              <h4 className="font-bold text-[#141518] dark:text-white mb-1">
+                4. Independent Custodian
+              </h4>
+              <p className="text-[#64748B] text-[11px] leading-relaxed">
+                Qualified custodian maintaining institutional multi-party computation (MPC) cold storage vaults. All crypto assets are held in segregated, bankruptcy-remote trust accounts.
               </p>
             </div>
           </div>

@@ -31,10 +31,10 @@ export const InvestmentOverviewCard: React.FC<InvestmentOverviewCardProps> = ({ 
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold text-[#141518] dark:text-white uppercase tracking-wider">
-              Investment Overview
+              Investment Allocation
             </span>
             <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold">
-              Strategy Active
+              Platform Target Strategy
             </span>
           </div>
 
@@ -48,28 +48,28 @@ export const InvestmentOverviewCard: React.FC<InvestmentOverviewCardProps> = ({ 
           <div className="flex items-center justify-between text-xs text-[#64748B] mb-1">
             <span>Your Active Units</span>
             <span className="font-mono font-bold text-[#141518] dark:text-white">
-              0.0000 UNITS
+              — UNITS
             </span>
           </div>
           <div className="flex items-center justify-between text-xs text-[#64748B]">
             <span>Subscription Value</span>
             <span className="font-mono font-bold text-[#141518] dark:text-white">
-              $0.00 USD
+              — USD
             </span>
           </div>
 
           <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-800 text-[11px] text-[#64748B] flex items-center gap-1.5">
             <Info className="w-3.5 h-3.5 text-[#FF512F] shrink-0" />
-            Subscriptions processed on weekly cut-off before Friday NAV publication.
+            User subledger sync pending • Subscriptions settle on weekly NAV cycle cut-off.
           </div>
         </div>
 
         {/* Target Asset Allocation (40/25/15/15/5 Architecture) */}
         <div className="my-4">
-          <div className="flex items-center justify-between text-xs font-bold text-[#141518] dark:text-white mb-2">
-            <span>Platform Target Allocation</span>
-            <span className="text-[11px] font-mono font-normal text-[#64748B]">
-              100% Fully Backed
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs font-bold text-[#141518] dark:text-white mb-2 gap-1">
+            <span>Platform Target Allocation (Fund Strategy Model)</span>
+            <span className="text-[10px] font-mono font-normal text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full self-start sm:self-auto">
+              Vehicle Target • Not Personal Portfolio
             </span>
           </div>
 

@@ -1,10 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from sqlalchemy import text
 import logging
 
 from config import settings
-from database import engine, Base
+from database import engine
 import models # Ensure all SQLAlchemy models are registered
 from routes.health import router as health_router
 from routes.ledger import router as ledger_router
@@ -17,13 +18,23 @@ logger = logging.getLogger("cryptiq-api")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Initializing Cryptiq Core API & Database...")
-    if engine is not None:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        logger.info("PostgreSQL database tables verified/created successfully.")
+    logger.info("Initializing Nexora API and verifying database connection...")
+
+    if engine is None:
+        raise RuntimeError("Database engine is not configured.")
+
+    try:
+        async with engine.connect() as connection:
+            await connection.execute(text("SELECT 1"))
+        logger.info("PostgreSQL database connection verified.")
+    except Exception:
+        logger.exception("Database connection verification failed.")
+        raise
+
     yield
-    logger.info("Shutting down Cryptiq Core API gracefully.")
+
+    await engine.dispose()
+    logger.info("Nexora API shut down successfully.")
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

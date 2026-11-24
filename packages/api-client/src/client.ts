@@ -23,13 +23,14 @@ export class CryptiqApiClient {
 
   constructor(baseUrl?: string) {
     const envUrl = typeof process !== 'undefined' && process.env ? process.env.NEXT_PUBLIC_API_URL : undefined;
-    const isBrowser = typeof window !== 'undefined';
-    const isNonLocalhost = isBrowser && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
-    const isProdEnv = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'production';
     const defaultProdUrl = 'https://nexora-edz1.onrender.com';
-    this.baseUrl = baseUrl || envUrl || (isNonLocalhost || isProdEnv ? defaultProdUrl : 'http://localhost:8000');
+    let resolvedUrl = baseUrl || envUrl || defaultProdUrl;
+    if (resolvedUrl.endsWith('/')) {
+      resolvedUrl = resolvedUrl.slice(0, -1);
+    }
+    this.baseUrl = resolvedUrl;
 
-    if (isBrowser) {
+    if (typeof window !== 'undefined') {
       try {
         this.token = localStorage.getItem('nexora_token');
       } catch {

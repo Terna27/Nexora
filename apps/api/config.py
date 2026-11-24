@@ -18,11 +18,14 @@ class Settings(BaseSettings):
     CORS_ORIGINS: Union[List[str], str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
         "http://localhost:19006",
         "http://localhost:8081",
         "https://nexora.onrender.com",
         "https://nexora-web.onrender.com",
         "https://nexora-frontend.onrender.com",
+        "https://nexora-edz1.onrender.com",
     ]
     SECRET_KEY: str = "cryptiq_super_secret_development_key_change_in_production"
 
@@ -45,10 +48,44 @@ class Settings(BaseSettings):
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
-        if isinstance(v, str) and not v.startswith("["):
-            return [i.strip() for i in v.split(",")]
-        elif isinstance(v, (list, str)):
-            return v
-        raise ValueError(v)
+        defaults = [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+            "http://localhost:19006",
+            "http://localhost:8081",
+            "https://nexora.onrender.com",
+            "https://nexora-web.onrender.com",
+            "https://nexora-frontend.onrender.com",
+            "https://nexora-edz1.onrender.com",
+        ]
+        origins = list(defaults)
+        if isinstance(v, str):
+            v_str = v.strip()
+            if v_str.startswith("[") and v_str.endswith("]"):
+                try:
+                    import json
+                    parsed = json.loads(v_str)
+                    if isinstance(parsed, list):
+                        for item in parsed:
+                            s = str(item).strip()
+                            if s and s not in origins:
+                                origins.append(s)
+                        return origins
+                except Exception:
+                    pass
+            for i in v_str.split(","):
+                s = i.strip()
+                if s and s not in origins:
+                    origins.append(s)
+            return origins
+        elif isinstance(v, list):
+            for i in v:
+                s = str(i).strip()
+                if s and s not in origins:
+                    origins.append(s)
+            return origins
+        return origins
 
 settings = Settings()

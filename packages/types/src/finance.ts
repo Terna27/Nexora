@@ -53,3 +53,61 @@ export interface LedgerEntry {
   auditMerkleRoot: string;
   isIllustrative: true;
 }
+
+export interface UserAccountBalance {
+  accountId: string;
+  accountNumber: string;
+  asset: string;
+  assetName: string;
+  accountType: string;
+  accountCategory: string;
+  settledBalance: string;
+  availableBalance: string;
+  pendingBalance: string;
+  reservedBalance: string;
+  functionalUsdBalance: string;
+  decimals: number;
+}
+
+export interface PortfolioMetrics {
+  totalEarningsUsd?: string | null;
+  activePrincipalUsd?: string | null;
+  accruedDailyYieldUsd?: string | null;
+  totalWithdrawnUsd?: string | null;
+}
+
+export interface UserPortfolioResponse {
+  userId: string;
+  hasAccounts: boolean;
+  status: 'PROVISIONED' | 'UNPROVISIONED' | 'AWAITING_SUBLEDGER_SYNC';
+  totalBalanceUsd: string | null;
+  isAvailable: boolean;
+  accounts: UserAccountBalance[];
+  metrics: PortfolioMetrics;
+  unsupportedMetrics: string[];
+}
+
+export interface UserTransactionItem {
+  id: string;
+  transactionRef: string;
+  transactionType: string;
+  status: 'PENDING' | 'POSTED' | 'SETTLED' | 'VOIDED';
+  asset: string;
+  amount: string;
+  amountUsd: string;
+  direction: 'DEBIT' | 'CREDIT';
+  description?: string | null;
+  postedAt?: string | null;
+  settledAt?: string | null;
+  createdAt: string;
+  isReversal: boolean;
+  reversalOfId?: string | null;
+}
+
+export interface UserTransactionsListResponse {
+  items: UserTransactionItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  pages: number;
+}

@@ -6,6 +6,19 @@ from models.user import (
     PasswordResetTokenModel,
     AuthAuditEventModel,
 )
+from models.financial import (
+    LegalEntityModel,
+    AssetModel,
+    AssetNetworkModel,
+    AccountModel,
+    AccountBalanceModel,
+    FinancialTransactionModel,
+    JournalEntryModel,
+    JournalEntryReversalModel,
+    IdempotencyRecordModel,
+    InvestorUnitActivityModel,
+    NAVSnapshotModel,
+)
 
 __all__ = [
     "AuditLedgerModel",
@@ -15,4 +28,15 @@ __all__ = [
     "EmailVerificationTokenModel",
     "PasswordResetTokenModel",
     "AuthAuditEventModel",
+    "LegalEntityModel",
+    "AssetModel",
+    "AssetNetworkModel",
+    "AccountModel",
+    "AccountBalanceModel",
+    "FinancialTransactionModel",
+    "JournalEntryModel",
+    "JournalEntryReversalModel",
+    "IdempotencyRecordModel",
+    "InvestorUnitActivityModel",
+    "NAVSnapshotModel",
 ]

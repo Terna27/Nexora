@@ -9,18 +9,18 @@ import {
   ShieldCheck,
   AlertCircle
 } from 'lucide-react';
+import { UserPortfolioResponse } from '@cryptiq/types';
 
-export const FinancialMetricsGrid: React.FC = () => {
-  // Strict financial data integrity rule:
-  // A missing portfolio metric endpoint must NEVER be presented as proof of $0.00.
-  // Display explicit unavailable state ('—') with pending sync badges.
-  const metrics = {
-    totalEarningsUsd: null as number | null,
-    activePrincipalUsd: null as number | null,
-    accruedDailyYieldUsd: null as number | null,
-    pendingYieldUsd: null as number | null,
-    totalWithdrawnUsd: null as number | null,
-  };
+interface FinancialMetricsGridProps {
+  portfolio?: UserPortfolioResponse | null;
+}
+
+export const FinancialMetricsGrid: React.FC<FinancialMetricsGridProps> = ({ portfolio }) => {
+  // Authoritative metrics derived from backend portfolio response
+  const activePrincipal = portfolio?.metrics?.activePrincipalUsd ? parseFloat(portfolio.metrics.activePrincipalUsd) : null;
+  const totalWithdrawn = portfolio?.metrics?.totalWithdrawnUsd ? parseFloat(portfolio.metrics.totalWithdrawnUsd) : null;
+  const totalEarnings = portfolio?.metrics?.totalEarningsUsd ? parseFloat(portfolio.metrics.totalEarningsUsd) : null;
+  const accruedYield = portfolio?.metrics?.accruedDailyYieldUsd ? parseFloat(portfolio.metrics.accruedDailyYieldUsd) : null;
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
@@ -39,14 +39,14 @@ export const FinancialMetricsGrid: React.FC = () => {
           </div>
 
           <div className="text-2xl sm:text-3xl font-extrabold font-mono tracking-tight text-white tabular-nums my-1">
-            {metrics.totalEarningsUsd !== null ? `$${metrics.totalEarningsUsd.toFixed(2)}` : '—'}
+            {totalEarnings !== null ? `$${totalEarnings.toFixed(2)}` : '—'}
           </div>
         </div>
 
         <div className="pt-3 border-t border-white/20 mt-2 flex items-center justify-between text-[11px] text-white/90">
           <span>Subledger status</span>
           <span className="font-mono text-[10px] bg-white/20 px-2 py-0.5 rounded-full">
-            Sync pending
+            {totalEarnings !== null ? 'Settled' : 'Sync pending'}
           </span>
         </div>
       </div>
@@ -64,14 +64,18 @@ export const FinancialMetricsGrid: React.FC = () => {
           </div>
 
           <div className="text-2xl sm:text-3xl font-extrabold font-mono tracking-tight text-[#141518] dark:text-white tabular-nums my-1">
-            {metrics.activePrincipalUsd !== null ? `$${metrics.activePrincipalUsd.toFixed(2)}` : '—'}
+            {activePrincipal !== null ? `$${activePrincipal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
           </div>
         </div>
 
         <div className="pt-3 border-t border-light-border dark:border-dark-border mt-2 flex items-center justify-between text-[11px] text-[#64748B]">
           <span>Allocation Status</span>
-          <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-mono font-semibold">
-            Unavailable
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold ${
+            activePrincipal !== null
+              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+              : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+          }`}>
+            {activePrincipal !== null ? 'Settled Units' : 'Unavailable'}
           </span>
         </div>
       </div>
@@ -89,12 +93,12 @@ export const FinancialMetricsGrid: React.FC = () => {
           </div>
 
           <div className="text-2xl sm:text-3xl font-extrabold font-mono tracking-tight text-[#141518] dark:text-white tabular-nums my-1">
-            {metrics.accruedDailyYieldUsd !== null ? `$${metrics.accruedDailyYieldUsd.toFixed(2)}` : '—'}
+            {accruedYield !== null ? `$${accruedYield.toFixed(2)}` : '—'}
           </div>
         </div>
 
         <div className="pt-3 border-t border-light-border dark:border-dark-border mt-2 flex items-center justify-between text-[11px] text-[#64748B]">
-          <span>Settled: —</span>
+          <span>Settled: {accruedYield !== null ? `$${accruedYield.toFixed(2)}` : '—'}</span>
           <span className="text-[10px] font-mono text-[#64748B]">
             Pending: —
           </span>
@@ -114,14 +118,14 @@ export const FinancialMetricsGrid: React.FC = () => {
           </div>
 
           <div className="text-2xl sm:text-3xl font-extrabold font-mono tracking-tight text-[#141518] dark:text-white tabular-nums my-1">
-            {metrics.totalWithdrawnUsd !== null ? `$${metrics.totalWithdrawnUsd.toFixed(2)}` : '—'}
+            {totalWithdrawn !== null ? `$${totalWithdrawn.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
           </div>
         </div>
 
         <div className="pt-3 border-t border-light-border dark:border-dark-border mt-2 flex items-center justify-between text-[11px] text-[#64748B]">
           <span>Disbursements</span>
           <span className="text-[10px] font-mono text-[#64748B]">
-            0 settled
+            {totalWithdrawn !== null ? 'Settled' : '0 settled'}
           </span>
         </div>
       </div>

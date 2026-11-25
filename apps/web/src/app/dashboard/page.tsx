@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { cryptiqApi } from '@cryptiq/api-client';
-import { AssetInfo, SupportedAsset, LedgerEntry } from '@cryptiq/types';
+import { AssetInfo, SupportedAsset, LedgerEntry, UserPortfolioResponse, UserTransactionItem } from '@cryptiq/types';
 
 import { DashboardSkeleton } from '@/components/dashboard/DashboardSkeleton';
 import { DashboardHeader, DashboardTab } from '@/components/dashboard/DashboardHeader';
@@ -36,6 +36,8 @@ export default function DashboardPage() {
   // Live Backend Data States
   const [quotes, setQuotes] = useState<Record<SupportedAsset, AssetInfo> | null>(null);
   const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
+  const [portfolio, setPortfolio] = useState<UserPortfolioResponse | null>(null);
+  const [personalTransactions, setPersonalTransactions] = useState<UserTransactionItem[]>([]);
   const [isDataLoading, setIsDataLoading] = useState(true);
 
   // Protected Route Check: Redirect unauthenticated users immediately
@@ -52,13 +54,17 @@ export default function DashboardPage() {
     let isMounted = true;
     async function loadData() {
       try {
-        const [quotesData, ledgerData] = await Promise.all([
+        const [quotesData, ledgerData, portfolioData, transactionsData] = await Promise.all([
           cryptiqApi.getAssetQuotes(),
           cryptiqApi.getLedgerEntries(),
+          cryptiqApi.getUserPortfolio(),
+          cryptiqApi.getUserTransactions(),
         ]);
         if (isMounted) {
           setQuotes(quotesData);
           setLedgerEntries(ledgerData);
+          setPortfolio(portfolioData);
+          setPersonalTransactions(transactionsData.items || []);
         }
       } catch (err) {
         console.error('Error loading dashboard financial data:', err);
@@ -134,12 +140,13 @@ export default function DashboardPage() {
                   {/* Card A: Total Balance + Nested Crypto Wallets */}
                   <TotalBalanceCard
                     quotes={quotes}
+                    portfolio={portfolio}
                     onOpenDeposit={() => setIsDepositOpen(true)}
                     onOpenWithdraw={() => setIsWithdrawOpen(true)}
                   />
 
                   {/* Card B: Compact 2x2 Financial Metrics Grid */}
-                  <FinancialMetricsGrid />
+                  <FinancialMetricsGrid portfolio={portfolio} />
 
                   {/* Card C: Investment Performance Chart */}
                   <InvestmentPerformanceChart quotes={quotes} />
@@ -158,6 +165,7 @@ export default function DashboardPage() {
                   <div className="lg:col-span-7">
                     <RecentActivitiesCard
                       platformLedgerEntries={ledgerEntries}
+                      personalTransactions={personalTransactions}
                       onViewAllActivity={() => setActiveTab('Activity')}
                     />
                   </div>
@@ -171,6 +179,7 @@ export default function DashboardPage() {
                 <div className="bg-white dark:bg-dark-card border border-light-border dark:border-dark-border rounded-3xl p-6 shadow-sm">
                   <RecentActivitiesCard
                     platformLedgerEntries={ledgerEntries}
+                    personalTransactions={personalTransactions}
                   />
                 </div>
               </div>

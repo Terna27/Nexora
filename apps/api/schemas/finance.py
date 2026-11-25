@@ -51,3 +51,59 @@ class HealthResponse(BaseModel):
     activeNodes: int
     databaseStatus: str
     timestamp: str
+
+# ----------------- USER PORTFOLIO & TRANSACTIONS SCHEMAS -----------------
+
+class UserAccountBalanceSchema(BaseModel):
+    accountId: str
+    accountNumber: str
+    asset: str
+    assetName: str
+    accountType: str
+    accountCategory: str
+    settledBalance: str
+    availableBalance: str
+    pendingBalance: str
+    reservedBalance: str
+    functionalUsdBalance: str
+    decimals: int
+
+class PortfolioMetricsSchema(BaseModel):
+    totalEarningsUsd: Optional[str] = None
+    activePrincipalUsd: Optional[str] = None
+    accruedDailyYieldUsd: Optional[str] = None
+    totalWithdrawnUsd: Optional[str] = None
+
+class UserPortfolioResponse(BaseModel):
+    userId: str
+    hasAccounts: bool
+    status: str  # "PROVISIONED", "UNPROVISIONED", "AWAITING_SUBLEDGER_SYNC"
+    totalBalanceUsd: Optional[str] = None
+    isAvailable: bool
+    accounts: List[UserAccountBalanceSchema]
+    metrics: PortfolioMetricsSchema
+    unsupportedMetrics: List[str]
+
+class UserTransactionItemSchema(BaseModel):
+    id: str
+    transactionRef: str
+    transactionType: str
+    status: str
+    asset: str
+    amount: str
+    amountUsd: str
+    direction: str
+    description: Optional[str] = None
+    postedAt: Optional[str] = None
+    settledAt: Optional[str] = None
+    createdAt: str
+    isReversal: bool = False
+    reversalOfId: Optional[str] = None
+
+class UserTransactionsListResponse(BaseModel):
+    items: List[UserTransactionItemSchema]
+    total: int
+    page: int
+    pageSize: int
+    pages: int
+

@@ -14,24 +14,38 @@ import {
   Coins, 
   FileText 
 } from 'lucide-react';
-import { LedgerEntry } from '@cryptiq/types';
+import { LedgerEntry, UserTransactionItem } from '@cryptiq/types';
 
 interface RecentActivitiesCardProps {
   platformLedgerEntries: LedgerEntry[];
+  personalTransactions?: UserTransactionItem[];
   onViewAllActivity?: () => void;
 }
 
 export const RecentActivitiesCard: React.FC<RecentActivitiesCardProps> = ({
   platformLedgerEntries,
+  personalTransactions = [],
   onViewAllActivity,
 }) => {
   const [filterType, setFilterType] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [viewMode, setViewMode] = useState<'PERSONAL' | 'PLATFORM_ATTESTATIONS'>('PERSONAL');
 
-  // Real personal transactions: Currently 0 user-specific transactions exist in the backend
-  // Strict non-negotiable rule: Never fabricate fake deposits or fake trading transactions!
-  const personalTransactions: any[] = [];
+  const filteredPersonalTransactions = useMemo(() => {
+    return personalTransactions.filter((tx) => {
+      const matchesSearch =
+        tx.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        tx.transactionRef.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        tx.asset.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        tx.transactionType.toLowerCase().includes(searchQuery.toLowerCase());
+
+      if (!matchesSearch) return false;
+      if (filterType === 'ALL') return true;
+      if (filterType === 'DEPOSIT' && tx.transactionType.includes('DEPOSIT')) return true;
+      if (filterType === 'WITHDRAWAL' && tx.transactionType.includes('WITHDRAWAL')) return true;
+      return true;
+    });
+  }, [personalTransactions, searchQuery, filterType]);
 
   const filteredPlatformEntries = useMemo(() => {
     return platformLedgerEntries.filter((tx) => {
@@ -126,24 +140,80 @@ export const RecentActivitiesCard: React.FC<RecentActivitiesCardProps> = ({
 
         {/* Content Table / Empty State */}
         {viewMode === 'PERSONAL' ? (
-          // Honest empty state for user account
-          <div className="py-12 px-4 rounded-2xl bg-[#F4F5F7] dark:bg-dark-bg/60 border border-dashed border-light-border dark:border-dark-border flex flex-col items-center justify-center text-center">
-            <div className="w-12 h-12 rounded-2xl bg-white dark:bg-dark-card border border-light-border dark:border-dark-border flex items-center justify-center text-[#64748B] shadow-sm mb-3">
-              <FileText className="w-5 h-5 text-[#FF512F]" />
+          filteredPersonalTransactions.length === 0 ? (
+            // Honest empty state for user account with no settled transactions
+            <div className="py-12 px-4 rounded-2xl bg-[#F4F5F7] dark:bg-dark-bg/60 border border-dashed border-light-border dark:border-dark-border flex flex-col items-center justify-center text-center">
+              <div className="w-12 h-12 rounded-2xl bg-white dark:bg-dark-card border border-light-border dark:border-dark-border flex items-center justify-center text-[#64748B] shadow-sm mb-3">
+                <FileText className="w-5 h-5 text-[#FF512F]" />
+              </div>
+              <h4 className="text-sm font-bold text-[#141518] dark:text-white">
+                No Personal Account Transactions
+              </h4>
+              <p className="text-xs text-[#64748B] dark:text-dark-textSecondary max-w-sm mt-1 leading-relaxed">
+                You haven&apos;t initiated any deposits, redemptions, or asset transfers yet. Once personal transactions are initiated and settled, they will appear here with full audit attestations.
+              </p>
+              <button
+                onClick={() => setViewMode('PLATFORM_ATTESTATIONS')}
+                className="mt-4 px-4 py-2 rounded-full bg-white dark:bg-dark-card border border-light-border dark:border-dark-border text-xs font-semibold text-[#141518] dark:text-white hover:border-[#FF512F] transition-colors shadow-xs"
+              >
+                View Institutional Network Ledger
+              </button>
             </div>
-            <h4 className="text-sm font-bold text-[#141518] dark:text-white">
-              No Personal Account Transactions
-            </h4>
-            <p className="text-xs text-[#64748B] dark:text-dark-textSecondary max-w-sm mt-1 leading-relaxed">
-              Personal transaction journal endpoint unavailable • Awaiting user subledger integration. Once personal transactions are initiated and settled, they will appear here with full audit attestations.
-            </p>
-            <button
-              onClick={() => setViewMode('PLATFORM_ATTESTATIONS')}
-              className="mt-4 px-4 py-2 rounded-full bg-white dark:bg-dark-card border border-light-border dark:border-dark-border text-xs font-semibold text-[#141518] dark:text-white hover:border-[#FF512F] transition-colors shadow-xs"
-            >
-              View Institutional Network Ledger
-            </button>
-          </div>
+          ) : (
+            // Authoritative personal transactions table
+            <div className="overflow-x-auto -mx-6 px-6">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-light-border dark:border-dark-border text-[10px] font-mono uppercase text-[#64748B] tracking-wider">
+                    <th className="py-2.5 font-semibold">Tx Ref</th>
+                    <th className="py-2.5 font-semibold">Type</th>
+                    <th className="py-2.5 font-semibold">Asset</th>
+                    <th className="py-2.5 font-semibold text-right">Amount</th>
+                    <th className="py-2.5 font-semibold">Status</th>
+                    <th className="py-2.5 font-semibold text-right">Date</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-light-border dark:divide-dark-border text-xs">
+                  {filteredPersonalTransactions.map((tx) => (
+                    <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                      <td className="py-3 font-mono text-[11px] font-semibold text-[#141518] dark:text-white">
+                        {tx.transactionRef}
+                      </td>
+                      <td className="py-3">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-1.5 h-1.5 rounded-full ${
+                            tx.transactionType === 'DEPOSIT' ? 'bg-emerald-500' : 'bg-[#FF512F]'
+                          }`} />
+                          <span className="font-medium text-[#141518] dark:text-white">
+                            {tx.transactionType}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-3 font-mono font-semibold text-[#64748B]">
+                        {tx.asset}
+                      </td>
+                      <td className="py-3 text-right font-mono font-bold text-[#141518] dark:text-white tabular-nums">
+                        {tx.direction === 'CREDIT' ? '+' : '-'}{tx.amount} <span className="text-[10px] font-normal text-[#64748B]">{tx.asset}</span>
+                      </td>
+                      <td className="py-3">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold ${
+                          tx.status === 'SETTLED'
+                            ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                            : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                        }`}>
+                          <CheckCircle2 className="w-2.5 h-2.5" />
+                          {tx.status}
+                        </span>
+                      </td>
+                      <td className="py-3 text-right font-mono text-[11px] text-[#64748B]">
+                        {new Date(tx.createdAt).toLocaleDateString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         ) : (
           <div>
             {/* Prominent Institutional Ledger Disclaimer */}

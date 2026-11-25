@@ -11,26 +11,28 @@ import {
   Check, 
   ShieldAlert 
 } from 'lucide-react';
-import { AssetInfo, SupportedAsset } from '@cryptiq/types';
+import { AssetInfo, SupportedAsset, UserPortfolioResponse } from '@cryptiq/types';
 
 interface TotalBalanceCardProps {
   quotes: Record<SupportedAsset, AssetInfo> | null;
+  portfolio?: UserPortfolioResponse | null;
   onOpenDeposit: () => void;
   onOpenWithdraw: () => void;
 }
 
 export const TotalBalanceCard: React.FC<TotalBalanceCardProps> = ({
   quotes,
+  portfolio,
   onOpenDeposit,
   onOpenWithdraw,
 }) => {
   const [valuationCurrency, setValuationCurrency] = useState<'USD' | 'BTC' | 'ETH'>('USD');
 
-  // Strict financial data integrity rule:
-  // A missing or unintegrated portfolio balance endpoint must NEVER be presented as proof of a $0.00 balance.
-  // When backend user portfolio subledger is unavailable or pending integration, display explicit unavailable state.
-  const userBalanceUsd: number | null = null;
-  const isPortfolioBalanceAvailable = userBalanceUsd !== null;
+  // Authoritative financial balance from backend portfolio endpoint
+  const isPortfolioBalanceAvailable = Boolean(portfolio?.isAvailable && portfolio?.totalBalanceUsd !== null);
+  const userBalanceUsd: number | null = isPortfolioBalanceAvailable && portfolio?.totalBalanceUsd
+    ? parseFloat(portfolio.totalBalanceUsd)
+    : null;
 
   // Conversion for display based on live quotes
   const displayBalance = React.useMemo(() => {
@@ -39,7 +41,7 @@ export const TotalBalanceCard: React.FC<TotalBalanceCardProps> = ({
     }
     const balance: number = userBalanceUsd;
     if (valuationCurrency === 'USD') {
-      return `$${balance.toFixed(2)}`;
+      return `$${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
     if (valuationCurrency === 'BTC') {
       const btcPrice = quotes?.BTC?.unitPriceUsd || 1;
@@ -108,7 +110,9 @@ export const TotalBalanceCard: React.FC<TotalBalanceCardProps> = ({
           </div>
           <p className="text-[11px] text-[#64748B] dark:text-dark-textSecondary mt-1 flex items-center gap-1">
             <Info className="w-3 h-3 text-[#FF512F]" />
-            Portfolio balance endpoint unavailable • Awaiting subledger sync
+            {isPortfolioBalanceAvailable
+              ? 'Authoritative double-entry NAV balance • Synchronized'
+              : 'Portfolio balance endpoint unavailable • Awaiting subledger sync'}
           </p>
         </div>
 
@@ -148,6 +152,7 @@ export const TotalBalanceCard: React.FC<TotalBalanceCardProps> = ({
         <div className="space-y-2">
           {supportedAssets.map((asset) => {
             const quote = quotes ? quotes[asset.symbol] : null;
+            const userAcct = portfolio?.accounts?.find((a) => a.asset === asset.symbol);
             return (
               <div
                 key={asset.symbol}
@@ -168,13 +173,26 @@ export const TotalBalanceCard: React.FC<TotalBalanceCardProps> = ({
                 </div>
 
                 <div className="text-right">
-                  {/* Strict truth: subledger balance unavailable */}
-                  <div className="text-xs font-mono font-bold text-[#141518] dark:text-white tabular-nums">
-                    — <span className="text-[10px] text-[#64748B]">{asset.symbol}</span>
-                  </div>
-                  <div className="text-[10px] font-mono text-amber-600 dark:text-amber-400">
-                    Sync pending
-                  </div>
+                  {userAcct ? (
+                    <>
+                      <div className="text-xs font-mono font-bold text-[#141518] dark:text-white tabular-nums">
+                        {userAcct.settledBalance} <span className="text-[10px] text-[#64748B]">{asset.symbol}</span>
+                      </div>
+                      <div className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400">
+                        ${parseFloat(userAcct.functionalUsdBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* Strict truth: subledger balance unavailable */}
+                      <div className="text-xs font-mono font-bold text-[#141518] dark:text-white tabular-nums">
+                        — <span className="text-[10px] text-[#64748B]">{asset.symbol}</span>
+                      </div>
+                      <div className="text-[10px] font-mono text-amber-600 dark:text-amber-400">
+                        Sync pending
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             );

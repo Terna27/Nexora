@@ -14,6 +14,8 @@ import {
   GenericAuthResponse,
   LoginResponse,
   SessionsListResponse,
+  UserPortfolioResponse,
+  UserTransactionsListResponse,
 } from '@cryptiq/types';
 import { ILLUSTRATIVE_ASSET_PRICES, INITIAL_ILLUSTRATIVE_LEDGER } from './mockData';
 
@@ -314,6 +316,54 @@ export class CryptiqApiClient {
       throw new Error(data.detail || 'Failed to revoke session');
     }
     return data;
+  }
+
+  /**
+   * Fetch authoritative personal portfolio for the authenticated user
+   */
+  async getUserPortfolio(): Promise<UserPortfolioResponse | null> {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/v1/portfolio/me`, {
+        cache: 'no-store',
+        credentials: 'include',
+        headers: this.getAuthHeaders(),
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Fetch authoritative personal transaction history for the authenticated user
+   */
+  async getUserTransactions(params?: {
+    page?: number;
+    pageSize?: number;
+    transactionType?: string;
+    status?: string;
+    asset?: string;
+  }): Promise<UserTransactionsListResponse> {
+    const query = new URLSearchParams();
+    if (params?.page) query.set('page', params.page.toString());
+    if (params?.pageSize) query.set('page_size', params.pageSize.toString());
+    if (params?.transactionType) query.set('transaction_type', params.transactionType);
+    if (params?.status) query.set('status', params.status);
+    if (params?.asset) query.set('asset', params.asset);
+
+    const queryString = query.toString() ? `?${query.toString()}` : '';
+    try {
+      const res = await fetch(`${this.baseUrl}/api/v1/transactions/me${queryString}`, {
+        cache: 'no-store',
+        credentials: 'include',
+        headers: this.getAuthHeaders(),
+      });
+      if (!res.ok) return { items: [], total: 0, page: 1, pageSize: 20, pages: 0 };
+      return await res.json();
+    } catch {
+      return { items: [], total: 0, page: 1, pageSize: 20, pages: 0 };
+    }
   }
 }
 

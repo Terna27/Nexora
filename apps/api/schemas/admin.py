@@ -54,8 +54,82 @@ class AdminAuditLogsListResponse(BaseModel):
 class AdminOverviewResponse(BaseModel):
     totalUsers: int
     activeUsers: int
+    suspendedUsers: int
     verifiedUsers: int
     investorUsers: int
     adminUsers: int
     totalAccounts: int
     totalTransactions: int
+    totalInvestedCapitalUsd: Optional[str] = None
+    investedCapitalStatusMessage: str
+    totalWithdrawnCapitalUsd: Optional[str] = None
+    pendingWithdrawalsCount: int
+    completedWithdrawalsCount: int
+    failedWithdrawalsCount: int
+
+class AdminUserActionRequest(BaseModel):
+    reason: str = Field(..., min_length=3, max_length=500)
+
+class AdminUserDeleteRequest(BaseModel):
+    confirmEmail: str = Field(..., max_length=255)
+    reason: str = Field(..., min_length=5, max_length=500)
+
+class AdminActionResponse(BaseModel):
+    success: bool
+    message: str
+    targetId: str
+
+class AdminWithdrawalSummarySchema(BaseModel):
+    id: str
+    transactionRef: str
+    userId: Optional[str] = None
+    userEmail: Optional[str] = None
+    userFullName: Optional[str] = None
+    accountId: Optional[str] = None
+    accountNumber: Optional[str] = None
+    asset: str
+    amount: str
+    amountUsd: str
+    status: str
+    destinationMasked: Optional[str] = None
+    createdAt: str
+    settledAt: Optional[str] = None
+    rejectionReason: Optional[str] = None
+    approvalNotes: Optional[str] = None
+    payoutStatus: str
+
+class AdminWithdrawalsListResponse(BaseModel):
+    items: List[AdminWithdrawalSummarySchema]
+    total: int
+    page: int
+    pageSize: int
+    totalPages: int
+
+class AdminWithdrawalActionRequest(BaseModel):
+    reason: Optional[str] = None
+    notes: Optional[str] = None
+
+class AdminTransactionItemSchema(BaseModel):
+    id: str
+    transactionRef: str
+    transactionType: str
+    status: str
+    initiatorUserId: Optional[str] = None
+    initiatorEmail: Optional[str] = None
+    asset: str
+    amount: str
+    amountUsd: str
+    direction: str
+    description: Optional[str] = None
+    postedAt: Optional[str] = None
+    settledAt: Optional[str] = None
+    createdAt: str
+    isReversal: bool
+    reversalOfId: Optional[str] = None
+
+class AdminTransactionsListResponse(BaseModel):
+    items: List[AdminTransactionItemSchema]
+    total: int
+    page: int
+    pageSize: int
+    totalPages: int

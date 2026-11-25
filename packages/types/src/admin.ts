@@ -58,9 +58,91 @@ export interface AdminAuditLogsListResponse {
 export interface AdminOverviewMetrics {
   totalUsers: number;
   activeUsers: number;
+  suspendedUsers: number;
   verifiedUsers: number;
   investorUsers: number;
   adminUsers: number;
   totalAccounts: number;
   totalTransactions: number;
+  totalInvestedCapitalUsd: string | null;
+  investedCapitalStatusMessage: string;
+  totalWithdrawnCapitalUsd: string | null;
+  pendingWithdrawalsCount: number;
+  completedWithdrawalsCount: number;
+  failedWithdrawalsCount: number;
+}
+
+export interface AdminUserActionRequest {
+  reason: string;
+}
+
+export interface AdminUserDeleteRequest {
+  confirmEmail: string;
+  reason: string;
+}
+
+export interface AdminActionResponse {
+  success: boolean;
+  message: string;
+  targetId: string;
+}
+
+export interface AdminWithdrawalSummary {
+  id: string;
+  transactionRef: string;
+  userId?: string | null;
+  userEmail?: string | null;
+  userFullName?: string | null;
+  accountId?: string | null;
+  accountNumber?: string | null;
+  asset: string;
+  amount: string;
+  amountUsd: string;
+  status: string;
+  destinationMasked?: string | null;
+  createdAt: string;
+  settledAt?: string | null;
+  rejectionReason?: string | null;
+  approvalNotes?: string | null;
+  payoutStatus: string;
+}
+
+export interface AdminWithdrawalsListResponse {
+  items: AdminWithdrawalSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+export interface AdminWithdrawalActionRequest {
+  reason?: string;
+  notes?: string;
+}
+
+export interface AdminTransactionItem {
+  id: string;
+  transactionRef: string;
+  transactionType: string;
+  status: string;
+  initiatorUserId?: string | null;
+  initiatorEmail?: string | null;
+  asset: string;
+  amount: string;
+  amountUsd: string;
+  direction: string;
+  description?: string | null;
+  postedAt?: string | null;
+  settledAt?: string | null;
+  createdAt: string;
+  isReversal: boolean;
+  reversalOfId?: string | null;
+}
+
+export interface AdminTransactionsListResponse {
+  items: AdminTransactionItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 }

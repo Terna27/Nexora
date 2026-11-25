@@ -16,6 +16,8 @@ import {
   ChevronRight,
   Database,
   Lock,
+  ArrowUpRight,
+  ArrowLeftRight,
 } from 'lucide-react';
 
 export default function AdminLayout({
@@ -80,8 +82,10 @@ export default function AdminLayout({
 
   const navLinks = [
     { href: '/admin', label: 'Overview', icon: LayoutDashboard, exact: true },
-    { href: '/admin/users', label: 'User Directory', icon: Users, exact: false },
-    { href: '/admin/audit-logs', label: 'Audit Trail', icon: FileText, exact: false },
+    { href: '/admin/users', label: 'Users', icon: Users, exact: false },
+    { href: '/admin/withdrawals', label: 'Withdrawals', icon: ArrowUpRight, exact: false },
+    { href: '/admin/transactions', label: 'Transactions', icon: ArrowLeftRight, exact: false },
+    { href: '/admin/audit-logs', label: 'Audit Logs', icon: FileText, exact: false },
   ];
 
   return (

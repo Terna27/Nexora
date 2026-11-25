@@ -25,6 +25,11 @@ import {
   AdminOverviewMetrics,
   AdminBootstrapStatusResponse,
   AdminBootstrapRequest,
+  AdminActionResponse,
+  AdminWithdrawalSummary,
+  AdminWithdrawalsListResponse,
+  AdminTransactionItem,
+  AdminTransactionsListResponse,
 } from '@cryptiq/types';
 import { ILLUSTRATIVE_ASSET_PRICES, INITIAL_ILLUSTRATIVE_LEDGER } from './mockData';
 
@@ -556,6 +561,170 @@ export class CryptiqApiClient {
     const queryString = query.toString() ? `?${query.toString()}` : '';
     try {
       const res = await fetch(`${this.baseUrl}/api/v1/admin/audit-logs${queryString}`, {
+        cache: 'no-store',
+        credentials: 'include',
+        headers: this.getAuthHeaders(),
+      });
+      if (!res.ok) return { items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 };
+      return await res.json();
+    } catch {
+      return { items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 };
+    }
+  }
+
+  /**
+   * Admin: Suspend user account and invalidate active sessions
+   */
+  async suspendUser(userId: string, reason: string): Promise<AdminActionResponse> {
+    const res = await fetch(`${this.baseUrl}/api/v1/admin/users/${userId}/suspend`, {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      credentials: 'include',
+      body: JSON.stringify({ reason }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || 'Failed to suspend user account');
+    }
+    return data;
+  }
+
+  /**
+   * Admin: Reactivate a previously suspended user account
+   */
+  async reactivateUser(userId: string, reason: string): Promise<AdminActionResponse> {
+    const res = await fetch(`${this.baseUrl}/api/v1/admin/users/${userId}/reactivate`, {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      credentials: 'include',
+      body: JSON.stringify({ reason }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || 'Failed to reactivate user account');
+    }
+    return data;
+  }
+
+  /**
+   * Admin: Safely remove account via deactivation and PII anonymization
+   */
+  async anonymizeDeleteUser(userId: string, confirmEmail: string, reason: string): Promise<AdminActionResponse> {
+    const res = await fetch(`${this.baseUrl}/api/v1/admin/users/${userId}/anonymize-delete`, {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      credentials: 'include',
+      body: JSON.stringify({ confirmEmail, reason }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || 'Failed to remove and anonymize user account');
+    }
+    return data;
+  }
+
+  /**
+   * Admin: List platform withdrawal requests
+   */
+  async getAdminWithdrawals(params?: {
+    page?: number;
+    pageSize?: number;
+    status?: string;
+    search?: string;
+  }): Promise<AdminWithdrawalsListResponse> {
+    const query = new URLSearchParams();
+    if (params?.page) query.set('page', params.page.toString());
+    if (params?.pageSize) query.set('page_size', params.pageSize.toString());
+    if (params?.status) query.set('status', params.status);
+    if (params?.search) query.set('search', params.search);
+
+    const queryString = query.toString() ? `?${query.toString()}` : '';
+    try {
+      const res = await fetch(`${this.baseUrl}/api/v1/admin/withdrawals${queryString}`, {
+        cache: 'no-store',
+        credentials: 'include',
+        headers: this.getAuthHeaders(),
+      });
+      if (!res.ok) return { items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 };
+      return await res.json();
+    } catch {
+      return { items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 };
+    }
+  }
+
+  /**
+   * Admin: Inspect a specific withdrawal request
+   */
+  async getAdminWithdrawalDetail(withdrawalId: string): Promise<AdminWithdrawalSummary | null> {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/v1/admin/withdrawals/${withdrawalId}`, {
+        cache: 'no-store',
+        credentials: 'include',
+        headers: this.getAuthHeaders(),
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Admin: Review and approve a pending withdrawal request
+   */
+  async approveWithdrawal(withdrawalId: string, notes?: string): Promise<AdminActionResponse> {
+    const res = await fetch(`${this.baseUrl}/api/v1/admin/withdrawals/${withdrawalId}/approve`, {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      credentials: 'include',
+      body: JSON.stringify({ notes }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || 'Failed to approve withdrawal request');
+    }
+    return data;
+  }
+
+  /**
+   * Admin: Review and reject a pending withdrawal request with required reason
+   */
+  async rejectWithdrawal(withdrawalId: string, reason: string): Promise<AdminActionResponse> {
+    const res = await fetch(`${this.baseUrl}/api/v1/admin/withdrawals/${withdrawalId}/reject`, {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      credentials: 'include',
+      body: JSON.stringify({ reason }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || 'Failed to reject withdrawal request');
+    }
+    return data;
+  }
+
+  /**
+   * Admin: List platform financial transactions across all accounts
+   */
+  async getAdminTransactions(params?: {
+    page?: number;
+    pageSize?: number;
+    transactionType?: string;
+    status?: string;
+    asset?: string;
+    search?: string;
+  }): Promise<AdminTransactionsListResponse> {
+    const query = new URLSearchParams();
+    if (params?.page) query.set('page', params.page.toString());
+    if (params?.pageSize) query.set('page_size', params.pageSize.toString());
+    if (params?.transactionType) query.set('transaction_type', params.transactionType);
+    if (params?.status) query.set('status', params.status);
+    if (params?.asset) query.set('asset', params.asset);
+    if (params?.search) query.set('search', params.search);
+
+    const queryString = query.toString() ? `?${query.toString()}` : '';
+    try {
+      const res = await fetch(`${this.baseUrl}/api/v1/admin/transactions${queryString}`, {
         cache: 'no-store',
         credentials: 'include',
         headers: this.getAuthHeaders(),

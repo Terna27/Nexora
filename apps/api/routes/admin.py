@@ -1,10 +1,11 @@
-from decimal import Decimal
-from typing import Optional, List
+import json
 import math
+from decimal import Decimal
+from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Query, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_, and_, distinct
+from sqlalchemy import select, update, func, or_, and_, distinct, text
 
 from database import get_db
 from routes.auth import require_admin, record_admin_audit_event
@@ -15,6 +16,7 @@ from models.financial import (
     AssetModel,
     FinancialTransactionModel,
     JournalEntryModel,
+    InvestorUnitActivityModel,
 )
 from schemas.admin import (
     AdminOverviewResponse,
@@ -22,6 +24,14 @@ from schemas.admin import (
     AdminUserDetailSchema,
     AdminUserListResponse,
     AdminUserAccountsResponse,
+    AdminUserActionRequest,
+    AdminUserDeleteRequest,
+    AdminActionResponse,
+    AdminWithdrawalSummarySchema,
+    AdminWithdrawalsListResponse,
+    AdminWithdrawalActionRequest,
+    AdminTransactionItemSchema,
+    AdminTransactionsListResponse,
     AdminAuditLogSchema,
     AdminAuditLogsListResponse,
 )
@@ -34,6 +44,43 @@ from schemas.finance import (
 router = APIRouter(prefix="/admin", tags=["Administrative Portal"])
 
 
+def mask_destination(dest: Optional[str]) -> Optional[str]:
+    if not dest:
+        return None
+    dest = dest.strip()
+    if len(dest) <= 8:
+        return dest[:2] + "..." + dest[-2:]
+    return dest[:6] + "..." + dest[-4:]
+
+
+def extract_destination(metadata_json_str: Optional[str], description: Optional[str]) -> Optional[str]:
+    if metadata_json_str:
+        try:
+            data = json.loads(metadata_json_str)
+            if isinstance(data, dict):
+                dest = (
+                    data.get("destination")
+                    or data.get("destination_address")
+                    or data.get("wallet_address")
+                    or data.get("bank_account")
+                    or data.get("address")
+                )
+                if dest:
+                    return mask_destination(str(dest))
+        except Exception:
+            pass
+    if description:
+        words = description.split()
+        for w in words:
+            if w.startswith("0x") or w.startswith("bc1") or w.startswith("1") or w.startswith("T") or len(w) > 24:
+                return mask_destination(w)
+    return "Institutional Custody Rail"
+
+
+# =========================================================================
+# 1. OVERVIEW & PLATFORM STATISTICS
+# =========================================================================
+
 @router.get("/overview", response_model=AdminOverviewResponse)
 async def get_admin_overview(
     request: Request,
@@ -41,19 +88,73 @@ async def get_admin_overview(
     db: AsyncSession = Depends(get_db),
 ) -> AdminOverviewResponse:
     """
-    Authoritative administrative overview metrics.
-    - Protected by server-enforced admin authorization.
-    - All operational figures are derived from real database records.
-    - Unsupported or non-authoritative metrics are omitted.
+    Authoritative administrative overview metrics derived strictly from persisted records.
+    - User counts, active vs suspended, verified users.
+    - Genuine withdrawn capital from settled ledger records.
+    - Honest state for invested capital (or real sum if unitization exists).
+    - Pending, completed, and failed withdrawal request counters.
     """
     total_users = await db.scalar(select(func.count(UserModel.id))) or 0
     active_users = await db.scalar(select(func.count(UserModel.id)).where(UserModel.is_active.is_(True))) or 0
+    suspended_users = await db.scalar(select(func.count(UserModel.id)).where(UserModel.is_active.is_(False))) or 0
     verified_users = await db.scalar(select(func.count(UserModel.id)).where(UserModel.is_verified.is_(True))) or 0
     investor_users = await db.scalar(select(func.count(UserModel.id)).where(UserModel.role == "investor")) or 0
     admin_users = await db.scalar(select(func.count(UserModel.id)).where(UserModel.role == "admin")) or 0
 
     total_accounts = await db.scalar(select(func.count(AccountModel.id))) or 0
     total_transactions = await db.scalar(select(func.count(FinancialTransactionModel.id))) or 0
+
+    # Total Invested Capital: Trace real investment ledger records
+    stmt_invested = select(
+        func.coalesce(func.sum(InvestorUnitActivityModel.functional_usd_value), Decimal("0.0000"))
+    ).where(
+        InvestorUnitActivityModel.activity_type == "ISSUANCE",
+        InvestorUnitActivityModel.reversal_of_id.is_(None),
+    )
+    invested_val = await db.scalar(stmt_invested)
+    if invested_val and invested_val > 0:
+        total_invested_usd = f"{invested_val:.2f}"
+        invested_status_msg = "Derived from settled unit issuance records"
+    else:
+        total_invested_usd = None
+        invested_status_msg = "Investment reporting is not yet available."
+
+    # Total Withdrawn Capital: Real sum of settled WITHDRAWAL debits on liability accounts
+    stmt_withdrawn = (
+        select(func.coalesce(func.sum(JournalEntryModel.functional_amount_usd), Decimal("0.0000")))
+        .join(FinancialTransactionModel, FinancialTransactionModel.id == JournalEntryModel.transaction_id)
+        .join(AccountModel, AccountModel.id == JournalEntryModel.account_id)
+        .where(
+            FinancialTransactionModel.transaction_type.in_(["WITHDRAWAL", "REDEMPTION"]),
+            FinancialTransactionModel.status == "SETTLED",
+            FinancialTransactionModel.is_fully_reversed.is_(False),
+            JournalEntryModel.direction == "DEBIT",
+        )
+    )
+    withdrawn_val = await db.scalar(stmt_withdrawn) or Decimal("0.0000")
+    total_withdrawn_usd = f"{withdrawn_val:.2f}"
+
+    # Withdrawal Request Counters
+    pending_withdrawals = await db.scalar(
+        select(func.count(FinancialTransactionModel.id)).where(
+            FinancialTransactionModel.transaction_type == "WITHDRAWAL",
+            FinancialTransactionModel.status == "PENDING",
+        )
+    ) or 0
+
+    completed_withdrawals = await db.scalar(
+        select(func.count(FinancialTransactionModel.id)).where(
+            FinancialTransactionModel.transaction_type == "WITHDRAWAL",
+            FinancialTransactionModel.status == "SETTLED",
+        )
+    ) or 0
+
+    failed_withdrawals = await db.scalar(
+        select(func.count(FinancialTransactionModel.id)).where(
+            FinancialTransactionModel.transaction_type == "WITHDRAWAL",
+            FinancialTransactionModel.status == "VOIDED",
+        )
+    ) or 0
 
     ip = request.client.host if request.client else "unknown"
     await record_admin_audit_event(
@@ -64,19 +165,30 @@ async def get_admin_overview(
         target_id=None,
         ip_address=ip,
         outcome="SUCCESS",
-        details="Accessed administrative system overview metrics",
+        details="Accessed administrative platform overview metrics",
     )
 
     return AdminOverviewResponse(
         totalUsers=total_users,
         activeUsers=active_users,
+        suspendedUsers=suspended_users,
         verifiedUsers=verified_users,
         investorUsers=investor_users,
         adminUsers=admin_users,
         totalAccounts=total_accounts,
         totalTransactions=total_transactions,
+        totalInvestedCapitalUsd=total_invested_usd,
+        investedCapitalStatusMessage=invested_status_msg,
+        totalWithdrawnCapitalUsd=total_withdrawn_usd,
+        pendingWithdrawalsCount=pending_withdrawals,
+        completedWithdrawalsCount=completed_withdrawals,
+        failedWithdrawalsCount=failed_withdrawals,
     )
 
+
+# =========================================================================
+# 2. USER DIRECTORY & MANAGEMENT
+# =========================================================================
 
 @router.get("/users", response_model=AdminUserListResponse)
 async def list_admin_users(
@@ -90,10 +202,7 @@ async def list_admin_users(
     admin_user: UserModel = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> AdminUserListResponse:
-    """
-    Paginated administrative user directory with search and status filtering.
-    - Sensitive fields (password hashes, tokens, MFA secrets) are never returned.
-    """
+    """Paginated user directory with search and status filtering."""
     conditions = []
     if search:
         search_term = f"%{search.strip()}%"
@@ -148,7 +257,7 @@ async def list_admin_users(
         target_id=None,
         ip_address=ip,
         outcome="SUCCESS",
-        details=f"Listed users (page={page}, size={page_size}, search='{search or ''}')",
+        details=f"Viewed user directory page {page} with {len(items)} results",
     )
 
     return AdminUserListResponse(
@@ -167,11 +276,7 @@ async def get_admin_user_detail(
     admin_user: UserModel = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> AdminUserDetailSchema:
-    """
-    Detailed user profile inspection for administrative staff.
-    - Excludes password hashes and sensitive secrets.
-    - Includes session lifecycle summary.
-    """
+    """Detailed user profile inspection excluding sensitive hashes and secrets."""
     user_stmt = select(UserModel).where(UserModel.id == user_id)
     target_user = await db.scalar(user_stmt)
     if not target_user:
@@ -181,8 +286,6 @@ async def get_admin_user_detail(
         )
 
     now = datetime.now(timezone.utc)
-
-    # Count active sessions (unrevoked and not expired)
     active_sessions_stmt = select(func.count(UserSessionModel.id)).where(
         UserSessionModel.user_id == user_id,
         UserSessionModel.revoked_at.is_(None),
@@ -212,7 +315,7 @@ async def get_admin_user_detail(
         target_id=user_id,
         ip_address=ip,
         outcome="SUCCESS",
-        details=f"Viewed profile details of user '{target_user.email}'",
+        details=f"Viewed user detail profile for {target_user.email}",
     )
 
     return AdminUserDetailSchema(
@@ -238,12 +341,7 @@ async def get_admin_user_accounts(
     admin_user: UserModel = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> AdminUserAccountsResponse:
-    """
-    Read-only inspection of a target user's financial subledger accounts and authoritative balances.
-    - Derived directly from authoritative double-entry accounting records.
-    - Cannot modify balances.
-    """
-    # Verify user exists
+    """Read-only inspection of target user's financial accounts."""
     user_exists = await db.scalar(select(UserModel.id).where(UserModel.id == user_id))
     if not user_exists:
         raise HTTPException(
@@ -260,18 +358,6 @@ async def get_admin_user_accounts(
     )
     res = await db.execute(stmt)
     rows = res.all()
-
-    ip = request.client.host if request.client else "unknown"
-    await record_admin_audit_event(
-        db=db,
-        admin_user_id=admin_user.id,
-        action="ADMIN_USER_ACCOUNTS_VIEW",
-        target_entity="user_accounts",
-        target_id=user_id,
-        ip_address=ip,
-        outcome="SUCCESS",
-        details=f"Inspected financial accounts for user ID '{user_id}'",
-    )
 
     if not rows:
         return AdminUserAccountsResponse(
@@ -318,6 +404,18 @@ async def get_admin_user_accounts(
             )
         )
 
+    ip = request.client.host if request.client else "unknown"
+    await record_admin_audit_event(
+        db=db,
+        admin_user_id=admin_user.id,
+        action="ADMIN_USER_ACCOUNTS_VIEW",
+        target_entity="user_accounts",
+        target_id=user_id,
+        ip_address=ip,
+        outcome="SUCCESS",
+        details=f"Viewed accounts for user {user_id}",
+    )
+
     return AdminUserAccountsResponse(
         userId=user_id,
         hasAccounts=True,
@@ -333,16 +431,12 @@ async def get_admin_user_transactions(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     transaction_type: Optional[str] = Query(None, description="Filter by transaction type"),
-    status: Optional[str] = Query(None, description="Filter by status (PENDING, POSTED, SETTLED, VOIDED)"),
+    status: Optional[str] = Query(None, description="Filter by status"),
     asset: Optional[str] = Query(None, description="Filter by asset symbol"),
     admin_user: UserModel = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> UserTransactionsListResponse:
-    """
-    Read-only inspection of target user's financial transactions.
-    - Strictly scoped to transactions belonging to or affecting the target user's accounts.
-    - Displays immutable lifecycle states (PENDING, POSTED, SETTLED, VOIDED).
-    """
+    """Read-only inspection of target user's financial transactions."""
     user_exists = await db.scalar(select(UserModel.id).where(UserModel.id == user_id))
     if not user_exists:
         raise HTTPException(
@@ -377,18 +471,6 @@ async def get_admin_user_transactions(
 
     total = await db.scalar(count_query) or 0
     pages = math.ceil(total / page_size) if total > 0 else 0
-
-    ip = request.client.host if request.client else "unknown"
-    await record_admin_audit_event(
-        db=db,
-        admin_user_id=admin_user.id,
-        action="ADMIN_USER_TRANSACTIONS_VIEW",
-        target_entity="user_transactions",
-        target_id=user_id,
-        ip_address=ip,
-        outcome="SUCCESS",
-        details=f"Inspected transactions for user ID '{user_id}' (page={page}, size={page_size})",
-    )
 
     if total == 0:
         return UserTransactionsListResponse(
@@ -477,6 +559,18 @@ async def get_admin_user_transactions(
             )
         )
 
+    ip = request.client.host if request.client else "unknown"
+    await record_admin_audit_event(
+        db=db,
+        admin_user_id=admin_user.id,
+        action="ADMIN_USER_TRANSACTIONS_VIEW",
+        target_entity="user_transactions",
+        target_id=user_id,
+        ip_address=ip,
+        outcome="SUCCESS",
+        details=f"Viewed transactions for user {user_id}",
+    )
+
     return UserTransactionsListResponse(
         items=items,
         total=total,
@@ -485,6 +579,797 @@ async def get_admin_user_transactions(
         pages=pages,
     )
 
+
+@router.post("/users/{user_id}/suspend", response_model=AdminActionResponse)
+async def suspend_user_account(
+    user_id: str,
+    req: AdminUserActionRequest,
+    request: Request,
+    admin_user: UserModel = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> AdminActionResponse:
+    """
+    Suspends a user account:
+    - Sets is_active = False.
+    - Immediately invalidates all active sessions.
+    - Preserves records and logs durable audit event with administrator attribution and reason.
+    """
+    if user_id == admin_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Administrators cannot suspend their own account."
+        )
+
+    user_stmt = select(UserModel).where(UserModel.id == user_id)
+    target_user = await db.scalar(user_stmt)
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User with ID '{user_id}' was not found."
+        )
+
+    if not target_user.is_active:
+        return AdminActionResponse(
+            success=True,
+            message=f"User '{target_user.email}' is already in a suspended state.",
+            targetId=user_id,
+        )
+
+    # 1. Update user state
+    target_user.is_active = False
+
+    # 2. Invalidate all active sessions immediately
+    now = datetime.now(timezone.utc)
+    revoke_stmt = (
+        update(UserSessionModel)
+        .where(UserSessionModel.user_id == user_id, UserSessionModel.revoked_at.is_(None))
+        .values(revoked_at=now)
+    )
+    await db.execute(revoke_stmt)
+
+    # 3. Durable audit log
+    ip = request.client.host if request.client else "unknown"
+    await record_admin_audit_event(
+        db=db,
+        admin_user_id=admin_user.id,
+        action="ADMIN_USER_SUSPEND",
+        target_entity="user",
+        target_id=user_id,
+        ip_address=ip,
+        outcome="SUCCESS",
+        reason=req.reason.strip(),
+        details=f"Suspended user account '{target_user.email}'; revoked all active sessions",
+    )
+
+    await db.commit()
+
+    return AdminActionResponse(
+        success=True,
+        message=f"User account '{target_user.email}' has been suspended and all active sessions revoked.",
+        targetId=user_id,
+    )
+
+
+@router.post("/users/{user_id}/reactivate", response_model=AdminActionResponse)
+async def reactivate_user_account(
+    user_id: str,
+    req: AdminUserActionRequest,
+    request: Request,
+    admin_user: UserModel = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> AdminActionResponse:
+    """Reactivates a previously suspended user account."""
+    user_stmt = select(UserModel).where(UserModel.id == user_id)
+    target_user = await db.scalar(user_stmt)
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User with ID '{user_id}' was not found."
+        )
+
+    if target_user.is_active:
+        return AdminActionResponse(
+            success=True,
+            message=f"User '{target_user.email}' is already active.",
+            targetId=user_id,
+        )
+
+    target_user.is_active = True
+
+    ip = request.client.host if request.client else "unknown"
+    await record_admin_audit_event(
+        db=db,
+        admin_user_id=admin_user.id,
+        action="ADMIN_USER_REACTIVATE",
+        target_entity="user",
+        target_id=user_id,
+        ip_address=ip,
+        outcome="SUCCESS",
+        reason=req.reason.strip(),
+        details=f"Reactivated user account '{target_user.email}'",
+    )
+
+    await db.commit()
+
+    return AdminActionResponse(
+        success=True,
+        message=f"User account '{target_user.email}' has been reactivated.",
+        targetId=user_id,
+    )
+
+
+@router.post("/users/{user_id}/anonymize-delete", response_model=AdminActionResponse)
+async def anonymize_and_remove_user_account(
+    user_id: str,
+    req: AdminUserDeleteRequest,
+    request: Request,
+    admin_user: UserModel = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> AdminActionResponse:
+    """
+    Safely removes a user account through deactivation and PII anonymization:
+    - Requires explicit confirmation of the user's email address.
+    - Prevents self-deletion.
+    - Forbids deletion if the user possesses positive settled financial balances.
+    - Forbids deletion if the user has pending unsettled transactions.
+    - Revokes all sessions and deactivates accounts.
+    - Anonymizes PII to preserve immutable audit and ledger relationships without foreign-key corruption.
+    - Logs durable audit event.
+    """
+    if user_id == admin_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Administrators cannot delete their own account."
+        )
+
+    user_stmt = select(UserModel).where(UserModel.id == user_id)
+    target_user = await db.scalar(user_stmt)
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User with ID '{user_id}' was not found."
+        )
+
+    # 1. Require explicit confirmation of target email
+    if req.confirmEmail.strip().lower() != target_user.email.strip().lower():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Confirmation email does not match target user email. Accidental deletion prevented."
+        )
+
+    # 2. Check for positive settled balances
+    stmt_balances = (
+        select(func.coalesce(func.sum(AccountBalanceModel.functional_usd_balance), Decimal("0.00")))
+        .join(AccountModel, AccountModel.id == AccountBalanceModel.account_id)
+        .where(AccountModel.user_id == user_id, AccountModel.is_active.is_(True))
+    )
+    active_balance = await db.scalar(stmt_balances) or Decimal("0.00")
+    if active_balance > Decimal("0.01"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot remove account with positive settled balance (${active_balance:.2f} USD). Balance must be liquidated or withdrawn first."
+        )
+
+    # 3. Check for pending transactions
+    stmt_pending = select(func.count(FinancialTransactionModel.id)).where(
+        FinancialTransactionModel.initiator_user_id == user_id,
+        FinancialTransactionModel.status == "PENDING",
+    )
+    pending_txs = await db.scalar(stmt_pending) or 0
+    if pending_txs > 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot remove account with {pending_txs} pending transaction(s). Transactions must be resolved first."
+        )
+
+    # 4. Safe deactivation and PII anonymization
+    now = datetime.now(timezone.utc)
+    old_email = target_user.email
+
+    # Revoke sessions
+    await db.execute(
+        update(UserSessionModel)
+        .where(UserSessionModel.user_id == user_id)
+        .values(revoked_at=now)
+    )
+
+    # Deactivate accounts
+    await db.execute(
+        update(AccountModel)
+        .where(AccountModel.user_id == user_id)
+        .values(is_active=False)
+    )
+
+    # Anonymize PII
+    target_user.full_name = "Deactivated User"
+    target_user.email = f"anonymized_{target_user.id[:8]}@deleted.nexora.internal"
+    target_user.password_hash = "REVOKED_DEACTIVATED_ACCOUNT"
+    target_user.mfa_secret = None
+    target_user.mfa_enabled = False
+    target_user.is_active = False
+    target_user.is_verified = False
+
+    # 5. Durable audit log
+    ip = request.client.host if request.client else "unknown"
+    await record_admin_audit_event(
+        db=db,
+        admin_user_id=admin_user.id,
+        action="ADMIN_USER_ANONYMIZE_DELETE",
+        target_entity="user",
+        target_id=user_id,
+        ip_address=ip,
+        outcome="SUCCESS",
+        reason=req.reason.strip(),
+        details=f"Safely removed and PII-anonymized user account previously known as '{old_email}'",
+    )
+
+    await db.commit()
+
+    return AdminActionResponse(
+        success=True,
+        message=f"User account '{old_email}' has been safely removed and anonymized. Financial records and audit logs are preserved.",
+        targetId=user_id,
+    )
+
+
+# =========================================================================
+# 3. WITHDRAWAL OPERATIONS & RECONCILIATION
+# =========================================================================
+
+@router.get("/withdrawals", response_model=AdminWithdrawalsListResponse)
+async def list_admin_withdrawals(
+    request: Request,
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    status_filter: Optional[str] = Query(None, alias="status", description="Filter by status (PENDING, POSTED, SETTLED, VOIDED)"),
+    search: Optional[str] = Query(None, description="Search by ref, email, or asset"),
+    admin_user: UserModel = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> AdminWithdrawalsListResponse:
+    """
+    Paginated administrative list of withdrawal requests with real ledger data.
+    - Exposes masked withdrawal destinations to prevent sensitive data exposure.
+    - Accurately reports status (PENDING, POSTED/APPROVED, SETTLED, VOIDED/REJECTED).
+    """
+    conditions = [FinancialTransactionModel.transaction_type == "WITHDRAWAL"]
+
+    if status_filter and status_filter.upper() != "ALL":
+        conditions.append(FinancialTransactionModel.status == status_filter.upper())
+
+    if search:
+        search_term = f"%{search.strip()}%"
+        user_matches = select(UserModel.id).where(
+            or_(
+                UserModel.email.ilike(search_term),
+                UserModel.full_name.ilike(search_term),
+            )
+        )
+        conditions.append(or_(
+            FinancialTransactionModel.transaction_ref.ilike(search_term),
+            FinancialTransactionModel.initiator_user_id.in_(user_matches),
+            FinancialTransactionModel.description.ilike(search_term),
+        ))
+
+    base_filter = and_(*conditions)
+
+    count_stmt = select(func.count(FinancialTransactionModel.id)).where(base_filter)
+    total = await db.scalar(count_stmt) or 0
+    total_pages = math.ceil(total / page_size) if total > 0 else 0
+
+    if total == 0:
+        return AdminWithdrawalsListResponse(
+            items=[],
+            total=0,
+            page=page,
+            pageSize=page_size,
+            totalPages=0,
+        )
+
+    stmt = (
+        select(FinancialTransactionModel, UserModel)
+        .outerjoin(UserModel, UserModel.id == FinancialTransactionModel.initiator_user_id)
+        .where(base_filter)
+        .order_by(FinancialTransactionModel.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    res = await db.execute(stmt)
+    rows = res.all()
+
+    items: List[AdminWithdrawalSummarySchema] = []
+    for tx, user in rows:
+        # Fetch associated journal entry line for amount and asset
+        entry_stmt = (
+            select(JournalEntryModel, AssetModel, AccountModel)
+            .join(AssetModel, AssetModel.id == JournalEntryModel.asset_id)
+            .join(AccountModel, AccountModel.id == JournalEntryModel.account_id)
+            .where(JournalEntryModel.transaction_id == tx.id)
+            .order_by(JournalEntryModel.entry_sequence.asc())
+        )
+        entry_res = await db.execute(entry_stmt)
+        entry_rows = entry_res.all()
+
+        asset_sym = "USD"
+        amount_str = "0.00"
+        amount_usd_str = "0.00"
+        acct_id = None
+        acct_num = None
+
+        # Prefer DEBIT entry (user liability account)
+        selected_entry = None
+        for entry_item, asset_item, acct_item in entry_rows:
+            if entry_item.direction == "DEBIT":
+                selected_entry = (entry_item, asset_item, acct_item)
+                break
+        if not selected_entry and entry_rows:
+            selected_entry = entry_rows[0]
+
+        if selected_entry:
+            e, a, acc = selected_entry
+            asset_sym = a.symbol
+            amount_str = f"{e.native_amount:.{a.display_decimals}f}"
+            amount_usd_str = f"{e.functional_amount_usd:.2f}"
+            acct_id = acc.id
+            acct_num = acc.account_number
+
+        meta: Dict[str, Any] = {}
+        if tx.metadata_json:
+            try:
+                meta = json.loads(tx.metadata_json) if isinstance(tx.metadata_json, str) else {}
+            except Exception:
+                meta = {}
+
+        # Derive payout status
+        if tx.status == "PENDING":
+            payout_status = "PENDING_REVIEW"
+        elif tx.status == "POSTED":
+            payout_status = "AWAITING_PAYOUT_EXECUTION"
+        elif tx.status == "SETTLED":
+            payout_status = "COMPLETED"
+        elif tx.status == "VOIDED":
+            payout_status = "REJECTED"
+        else:
+            payout_status = tx.status
+
+        items.append(
+            AdminWithdrawalSummarySchema(
+                id=tx.id,
+                transactionRef=tx.transaction_ref,
+                userId=user.id if user else tx.initiator_user_id,
+                userEmail=user.email if user else None,
+                userFullName=user.full_name if user else None,
+                accountId=acct_id,
+                accountNumber=acct_num,
+                asset=asset_sym,
+                amount=amount_str,
+                amountUsd=amount_usd_str,
+                status=tx.status,
+                destinationMasked=extract_destination(tx.metadata_json, tx.description),
+                createdAt=tx.created_at.isoformat(),
+                settledAt=tx.settled_at.isoformat() if tx.settled_at else None,
+                rejectionReason=meta.get("rejection_reason"),
+                approvalNotes=meta.get("approval_notes"),
+                payoutStatus=payout_status,
+            )
+        )
+
+    return AdminWithdrawalsListResponse(
+        items=items,
+        total=total,
+        page=page,
+        pageSize=page_size,
+        totalPages=total_pages,
+    )
+
+
+@router.get("/withdrawals/{withdrawal_id}", response_model=AdminWithdrawalSummarySchema)
+async def get_admin_withdrawal_detail(
+    withdrawal_id: str,
+    request: Request,
+    admin_user: UserModel = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> AdminWithdrawalSummarySchema:
+    """Detailed inspection of a specific withdrawal request."""
+    stmt = (
+        select(FinancialTransactionModel, UserModel)
+        .outerjoin(UserModel, UserModel.id == FinancialTransactionModel.initiator_user_id)
+        .where(
+            FinancialTransactionModel.id == withdrawal_id,
+            FinancialTransactionModel.transaction_type == "WITHDRAWAL",
+        )
+    )
+    res = await db.execute(stmt)
+    row = res.first()
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Withdrawal with ID '{withdrawal_id}' was not found."
+        )
+
+    tx, user = row
+    entry_stmt = (
+        select(JournalEntryModel, AssetModel, AccountModel)
+        .join(AssetModel, AssetModel.id == JournalEntryModel.asset_id)
+        .join(AccountModel, AccountModel.id == JournalEntryModel.account_id)
+        .where(JournalEntryModel.transaction_id == tx.id)
+    )
+    entry_res = await db.execute(entry_stmt)
+    entry_rows = entry_res.all()
+
+    asset_sym = "USD"
+    amount_str = "0.00"
+    amount_usd_str = "0.00"
+    acct_id = None
+    acct_num = None
+
+    selected_entry = None
+    for entry_item, asset_item, acct_item in entry_rows:
+        if entry_item.direction == "DEBIT":
+            selected_entry = (entry_item, asset_item, acct_item)
+            break
+    if not selected_entry and entry_rows:
+        selected_entry = entry_rows[0]
+
+    if selected_entry:
+        e, a, acc = selected_entry
+        asset_sym = a.symbol
+        amount_str = f"{e.native_amount:.{a.display_decimals}f}"
+        amount_usd_str = f"{e.functional_amount_usd:.2f}"
+        acct_id = acc.id
+        acct_num = acc.account_number
+
+    meta: Dict[str, Any] = {}
+    if tx.metadata_json:
+        try:
+            meta = json.loads(tx.metadata_json) if isinstance(tx.metadata_json, str) else {}
+        except Exception:
+            meta = {}
+
+    if tx.status == "PENDING":
+        payout_status = "PENDING_REVIEW"
+    elif tx.status == "POSTED":
+        payout_status = "AWAITING_PAYOUT_EXECUTION"
+    elif tx.status == "SETTLED":
+        payout_status = "COMPLETED"
+    elif tx.status == "VOIDED":
+        payout_status = "REJECTED"
+    else:
+        payout_status = tx.status
+
+    return AdminWithdrawalSummarySchema(
+        id=tx.id,
+        transactionRef=tx.transaction_ref,
+        userId=user.id if user else tx.initiator_user_id,
+        userEmail=user.email if user else None,
+        userFullName=user.full_name if user else None,
+        accountId=acct_id,
+        accountNumber=acct_num,
+        asset=asset_sym,
+        amount=amount_str,
+        amountUsd=amount_usd_str,
+        status=tx.status,
+        destinationMasked=extract_destination(tx.metadata_json, tx.description),
+        createdAt=tx.created_at.isoformat(),
+        settledAt=tx.settled_at.isoformat() if tx.settled_at else None,
+        rejectionReason=meta.get("rejection_reason"),
+        approvalNotes=meta.get("approval_notes"),
+        payoutStatus=payout_status,
+    )
+
+
+@router.post("/withdrawals/{withdrawal_id}/approve", response_model=AdminActionResponse)
+async def approve_withdrawal_request(
+    withdrawal_id: str,
+    req: AdminWithdrawalActionRequest,
+    request: Request,
+    admin_user: UserModel = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> AdminActionResponse:
+    """
+    Approves a pending withdrawal request:
+    - Enforces row-level lock (FOR UPDATE) to prevent race conditions or duplicate approvals.
+    - Strictly rejects non-PENDING withdrawals with 409 Conflict.
+    - Verifies balance sufficiency in the user's subledger account.
+    - Transitions status to POSTED (approved and committed to ledger).
+    - Logs durable audit record with administrator attribution.
+    - Honestly reports that automated payout execution is not integrated, requiring manual reconciliation.
+    """
+    # 1. Lock transaction row for mutual exclusion
+    stmt = (
+        select(FinancialTransactionModel)
+        .where(
+            FinancialTransactionModel.id == withdrawal_id,
+            FinancialTransactionModel.transaction_type == "WITHDRAWAL",
+        )
+        .with_for_update()
+    )
+    res = await db.execute(stmt)
+    tx = res.scalar_one_or_none()
+    if not tx:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Withdrawal request with ID '{withdrawal_id}' was not found."
+        )
+
+    # 2. Strict status check: only PENDING withdrawals can be approved
+    if tx.status != "PENDING":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot approve withdrawal in '{tx.status}' state. Only PENDING withdrawals can be approved."
+        )
+
+    # 3. Verify balance sufficiency
+    entry_stmt = (
+        select(JournalEntryModel, AccountBalanceModel)
+        .join(AccountModel, AccountModel.id == JournalEntryModel.account_id)
+        .outerjoin(AccountBalanceModel, AccountBalanceModel.account_id == AccountModel.id)
+        .where(
+            JournalEntryModel.transaction_id == tx.id,
+            JournalEntryModel.direction == "DEBIT",
+        )
+    )
+    entry_res = await db.execute(entry_stmt)
+    entry_row = entry_res.first()
+    if entry_row:
+        entry, balance = entry_row
+        settled_balance = balance.current_balance if balance else Decimal("0")
+        if settled_balance < entry.native_amount:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Insufficient settled balance for approval. Account has {settled_balance}, required: {entry.native_amount}"
+            )
+
+    # 4. Transition to POSTED (Approved)
+    now = datetime.now(timezone.utc)
+    tx.status = "POSTED"
+    tx.posted_at = now
+
+    meta: Dict[str, Any] = {}
+    if tx.metadata_json:
+        try:
+            meta = json.loads(tx.metadata_json) if isinstance(tx.metadata_json, str) else {}
+        except Exception:
+            meta = {}
+
+    meta["approved_by_admin_id"] = admin_user.id
+    meta["approved_by_admin_email"] = admin_user.email
+    meta["approved_at"] = now.isoformat()
+    meta["approval_notes"] = (req.notes or "Administrative approval granted").strip()
+    tx.metadata_json = json.dumps(meta)
+
+    # 5. Durable audit log
+    ip = request.client.host if request.client else "unknown"
+    await record_admin_audit_event(
+        db=db,
+        admin_user_id=admin_user.id,
+        action="ADMIN_WITHDRAWAL_APPROVE",
+        target_entity="financial_transaction",
+        target_id=tx.id,
+        ip_address=ip,
+        outcome="SUCCESS",
+        details=f"Approved withdrawal {tx.transaction_ref} (status moved to POSTED)",
+    )
+
+    await db.commit()
+
+    return AdminActionResponse(
+        success=True,
+        message=f"Withdrawal {tx.transaction_ref} approved and posted to ledger. Payout execution provider integration is not configured; manual disbursement reconciliation required.",
+        targetId=tx.id,
+    )
+
+
+@router.post("/withdrawals/{withdrawal_id}/reject", response_model=AdminActionResponse)
+async def reject_withdrawal_request(
+    withdrawal_id: str,
+    req: AdminWithdrawalActionRequest,
+    request: Request,
+    admin_user: UserModel = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> AdminActionResponse:
+    """
+    Rejects a pending withdrawal request:
+    - Enforces row-level lock (FOR UPDATE) to prevent race conditions.
+    - Strictly rejects non-PENDING withdrawals with 409 Conflict.
+    - Requires rejection reason.
+    - Transitions status to VOIDED, releasing reserved/pending balance in subledger.
+    - Logs durable audit record.
+    """
+    if not req.reason or len(req.reason.strip()) < 5:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A substantive rejection reason (at least 5 characters) is required."
+        )
+
+    stmt = (
+        select(FinancialTransactionModel)
+        .where(
+            FinancialTransactionModel.id == withdrawal_id,
+            FinancialTransactionModel.transaction_type == "WITHDRAWAL",
+        )
+        .with_for_update()
+    )
+    res = await db.execute(stmt)
+    tx = res.scalar_one_or_none()
+    if not tx:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Withdrawal request with ID '{withdrawal_id}' was not found."
+        )
+
+    if tx.status != "PENDING":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot reject withdrawal in '{tx.status}' state. Only PENDING withdrawals can be rejected."
+        )
+
+    now = datetime.now(timezone.utc)
+    rejection_reason = req.reason.strip()
+
+    # Transition to VOIDED (releases pending hold)
+    tx.status = "VOIDED"
+
+    meta: Dict[str, Any] = {}
+    if tx.metadata_json:
+        try:
+            meta = json.loads(tx.metadata_json) if isinstance(tx.metadata_json, str) else {}
+        except Exception:
+            meta = {}
+
+    meta["rejected_by_admin_id"] = admin_user.id
+    meta["rejected_by_admin_email"] = admin_user.email
+    meta["rejected_at"] = now.isoformat()
+    meta["rejection_reason"] = rejection_reason
+    tx.metadata_json = json.dumps(meta)
+
+    # Durable audit log
+    ip = request.client.host if request.client else "unknown"
+    await record_admin_audit_event(
+        db=db,
+        admin_user_id=admin_user.id,
+        action="ADMIN_WITHDRAWAL_REJECT",
+        target_entity="financial_transaction",
+        target_id=tx.id,
+        ip_address=ip,
+        outcome="SUCCESS",
+        reason=rejection_reason,
+        details=f"Rejected withdrawal {tx.transaction_ref}: {rejection_reason}",
+    )
+
+    await db.commit()
+
+    return AdminActionResponse(
+        success=True,
+        message=f"Withdrawal {tx.transaction_ref} rejected and voided. Reserved funds released.",
+        targetId=tx.id,
+    )
+
+
+# =========================================================================
+# 4. GLOBAL PLATFORM TRANSACTIONS
+# =========================================================================
+
+@router.get("/transactions", response_model=AdminTransactionsListResponse)
+async def list_admin_transactions(
+    request: Request,
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    transaction_type: Optional[str] = Query(None, description="Filter by type (DEPOSIT, WITHDRAWAL, SPOT_TRADE, etc.)"),
+    status_filter: Optional[str] = Query(None, alias="status", description="Filter by status (PENDING, POSTED, SETTLED, VOIDED)"),
+    asset: Optional[str] = Query(None, description="Filter by asset symbol"),
+    search: Optional[str] = Query(None, description="Search by ref or description"),
+    admin_user: UserModel = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> AdminTransactionsListResponse:
+    """Paginated global platform transaction explorer for operations staff."""
+    conditions = []
+    if transaction_type and transaction_type.upper() != "ALL":
+        conditions.append(FinancialTransactionModel.transaction_type == transaction_type.upper())
+    if status_filter and status_filter.upper() != "ALL":
+        conditions.append(FinancialTransactionModel.status == status_filter.upper())
+    if search:
+        search_term = f"%{search.strip()}%"
+        conditions.append(or_(
+            FinancialTransactionModel.transaction_ref.ilike(search_term),
+            FinancialTransactionModel.description.ilike(search_term),
+        ))
+
+    base_filter = and_(*conditions) if conditions else True
+
+    count_query = select(func.count(distinct(FinancialTransactionModel.id))).where(base_filter)
+    if asset:
+        count_query = count_query.join(
+            JournalEntryModel, JournalEntryModel.transaction_id == FinancialTransactionModel.id
+        ).join(
+            AssetModel, AssetModel.id == JournalEntryModel.asset_id
+        ).where(AssetModel.symbol == asset.upper())
+
+    total = await db.scalar(count_query) or 0
+    total_pages = math.ceil(total / page_size) if total > 0 else 0
+
+    if total == 0:
+        return AdminTransactionsListResponse(
+            items=[],
+            total=0,
+            page=page,
+            pageSize=page_size,
+            totalPages=0,
+        )
+
+    query = (
+        select(FinancialTransactionModel, UserModel.email)
+        .outerjoin(UserModel, UserModel.id == FinancialTransactionModel.initiator_user_id)
+        .where(base_filter)
+        .order_by(FinancialTransactionModel.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    if asset:
+        query = query.join(
+            JournalEntryModel, JournalEntryModel.transaction_id == FinancialTransactionModel.id
+        ).join(
+            AssetModel, AssetModel.id == JournalEntryModel.asset_id
+        ).where(AssetModel.symbol == asset.upper()).distinct()
+
+    res = await db.execute(query)
+    rows = res.all()
+
+    items: List[AdminTransactionItemSchema] = []
+    for tx, user_email in rows:
+        entry_stmt = (
+            select(JournalEntryModel, AssetModel)
+            .join(AssetModel, AssetModel.id == JournalEntryModel.asset_id)
+            .where(JournalEntryModel.transaction_id == tx.id)
+            .order_by(JournalEntryModel.entry_sequence.asc())
+        )
+        entry_res = await db.execute(entry_stmt)
+        first_entry = entry_res.first()
+
+        if first_entry:
+            e, a = first_entry
+            asset_sym = a.symbol
+            amount_str = f"{e.native_amount:.{a.display_decimals}f}"
+            amount_usd_str = f"{e.functional_amount_usd:.2f}"
+            direction_str = e.direction
+        else:
+            asset_sym = "USD"
+            amount_str = "0.00"
+            amount_usd_str = "0.00"
+            direction_str = "CREDIT"
+
+        items.append(
+            AdminTransactionItemSchema(
+                id=tx.id,
+                transactionRef=tx.transaction_ref,
+                transactionType=tx.transaction_type,
+                status=tx.status,
+                initiatorUserId=tx.initiator_user_id,
+                initiatorEmail=user_email,
+                asset=asset_sym,
+                amount=amount_str,
+                amountUsd=amount_usd_str,
+                direction=direction_str,
+                description=tx.description,
+                postedAt=tx.posted_at.isoformat() if tx.posted_at else None,
+                settledAt=tx.settled_at.isoformat() if tx.settled_at else None,
+                createdAt=tx.created_at.isoformat(),
+                isReversal=bool(tx.reversal_of_id or tx.transaction_type == "REVERSAL"),
+                reversalOfId=tx.reversal_of_id,
+            )
+        )
+
+    return AdminTransactionsListResponse(
+        items=items,
+        total=total,
+        page=page,
+        pageSize=page_size,
+        totalPages=total_pages,
+    )
+
+
+# =========================================================================
+# 5. DURABLE AUDIT LOG EXPLORER
+# =========================================================================
 
 @router.get("/audit-logs", response_model=AdminAuditLogsListResponse)
 async def list_admin_audit_logs(
@@ -497,11 +1382,7 @@ async def list_admin_audit_logs(
     admin_user: UserModel = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> AdminAuditLogsListResponse:
-    """
-    Read-only inspection of durable administrative audit records.
-    - PostgreSQL immutability trigger protects these logs from modification or deletion.
-    - Captures actor identity, action, target entity, timestamp, outcome, and details.
-    """
+    """Read-only inspection of durable administrative audit records."""
     conditions = []
     if action:
         conditions.append(AdminAuditLogModel.action == action.upper())

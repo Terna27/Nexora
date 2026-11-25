@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { cryptiqApi } from '@cryptiq/api-client';
 import {
   AdminUserDetail,
@@ -25,10 +25,15 @@ import {
   AlertTriangle,
   Info,
   Clock,
+  Ban,
+  Trash2,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 
 export default function AdminUserDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const userId = params?.id as string;
 
   const [user, setUser] = useState<AdminUserDetail | null>(null);
@@ -38,39 +43,110 @@ export default function AdminUserDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let mounted = true;
-    async function loadData() {
-      if (!userId) return;
-      setLoading(true);
-      setError(null);
-      try {
-        const [userDetail, userAccts, userTxs] = await Promise.all([
-          cryptiqApi.getAdminUserDetail(userId),
-          cryptiqApi.getAdminUserAccounts(userId),
-          cryptiqApi.getAdminUserTransactions(userId),
-        ]);
+  // Action Modals State
+  const [actionModal, setActionModal] = useState<'suspend' | 'reactivate' | 'delete' | null>(null);
+  const [actionReason, setActionReason] = useState('');
+  const [confirmEmailInput, setConfirmEmailInput] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-        if (mounted) {
-          if (!userDetail) {
-            setError('User was not found or access was denied.');
-          } else {
-            setUser(userDetail);
-            setAccounts(userAccts);
-            setTransactions(userTxs?.items || []);
-          }
-        }
-      } catch (err: any) {
-        if (mounted) setError(err.message || 'Failed to load user details.');
-      } finally {
-        if (mounted) setLoading(false);
+  const loadData = useCallback(async () => {
+    if (!userId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const [userDetail, userAccts, userTxs] = await Promise.all([
+        cryptiqApi.getAdminUserDetail(userId),
+        cryptiqApi.getAdminUserAccounts(userId),
+        cryptiqApi.getAdminUserTransactions(userId),
+      ]);
+
+      if (!userDetail) {
+        setError('User was not found or access was denied.');
+      } else {
+        setUser(userDetail);
+        setAccounts(userAccts);
+        setTransactions(userTxs?.items || []);
       }
+    } catch (err: any) {
+      setError(err.message || 'Failed to load user details.');
+    } finally {
+      setLoading(false);
     }
-    loadData();
-    return () => {
-      mounted = false;
-    };
   }, [userId]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Action Handlers
+  const handleSuspend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!actionReason.trim() || actionReason.trim().length < 3) {
+      setFeedback({ type: 'error', message: 'A substantive suspension reason (at least 3 characters) is required.' });
+      return;
+    }
+    setActionLoading(true);
+    setFeedback(null);
+    try {
+      const res = await cryptiqApi.suspendUser(userId, actionReason.trim());
+      setFeedback({ type: 'success', message: res.message });
+      setActionModal(null);
+      setActionReason('');
+      await loadData();
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || 'Failed to suspend account.' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleReactivate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!actionReason.trim() || actionReason.trim().length < 3) {
+      setFeedback({ type: 'error', message: 'A reason for reactivation is required.' });
+      return;
+    }
+    setActionLoading(true);
+    setFeedback(null);
+    try {
+      const res = await cryptiqApi.reactivateUser(userId, actionReason.trim());
+      setFeedback({ type: 'success', message: res.message });
+      setActionModal(null);
+      setActionReason('');
+      await loadData();
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || 'Failed to reactivate account.' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleAnonymizeDelete = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (confirmEmailInput.trim().toLowerCase() !== user?.email.trim().toLowerCase()) {
+      setFeedback({ type: 'error', message: 'Confirmation email does not match user email. Deletion prevented.' });
+      return;
+    }
+    if (!actionReason.trim() || actionReason.trim().length < 5) {
+      setFeedback({ type: 'error', message: 'A substantive reason (at least 5 characters) is required.' });
+      return;
+    }
+    setActionLoading(true);
+    setFeedback(null);
+    try {
+      const res = await cryptiqApi.anonymizeDeleteUser(userId, confirmEmailInput.trim(), actionReason.trim());
+      setFeedback({ type: 'success', message: res.message });
+      setActionModal(null);
+      setActionReason('');
+      setConfirmEmailInput('');
+      await loadData();
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || 'Failed to safely remove account.' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -102,6 +178,30 @@ export default function AdminUserDetailPage() {
 
   return (
     <div className="space-y-6">
+      {/* Feedback Banner */}
+      {feedback && (
+        <div
+          className={`p-4 rounded-2xl border text-xs flex items-start gap-3 ${
+            feedback.type === 'success'
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+              : 'bg-red-500/10 border-red-500/30 text-red-300'
+          }`}
+        >
+          {feedback.type === 'success' ? (
+            <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-400 mt-0.5" />
+          ) : (
+            <AlertCircle className="w-4 h-4 flex-shrink-0 text-red-400 mt-0.5" />
+          )}
+          <div className="flex-1 font-medium">{feedback.message}</div>
+          <button
+            onClick={() => setFeedback(null)}
+            className="text-zinc-400 hover:text-white font-mono text-xs"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* Breadcrumb & Navigation */}
       <div className="flex items-center justify-between">
         <Link
@@ -116,7 +216,7 @@ export default function AdminUserDetailPage() {
 
       {/* Profile Header Card */}
       <div className="bg-[#0D1117] border border-zinc-800 rounded-2xl p-6 space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 font-bold text-lg">
               {user.fullName?.charAt(0) || 'U'}
@@ -138,7 +238,8 @@ export default function AdminUserDetailPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          {/* Status Badges & Admin Operations Actions */}
+          <div className="flex flex-wrap items-center gap-2.5">
             {user.isActive ? (
               <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium inline-flex items-center gap-1">
                 <CheckCircle2 className="w-3.5 h-3.5" />
@@ -154,13 +255,50 @@ export default function AdminUserDetailPage() {
             {user.isVerified ? (
               <span className="px-2.5 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-xs font-medium inline-flex items-center gap-1">
                 <ShieldCheck className="w-3.5 h-3.5" />
-                <span>Email Verified</span>
+                <span>Verified</span>
               </span>
             ) : (
               <span className="px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-medium">
                 Unverified
               </span>
             )}
+
+            {/* Action Buttons */}
+            {user.isActive ? (
+              <button
+                onClick={() => {
+                  setActionModal('suspend');
+                  setActionReason('');
+                }}
+                className="px-3 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-xs font-semibold transition inline-flex items-center gap-1.5"
+              >
+                <Ban className="w-3.5 h-3.5" />
+                <span>Suspend Account</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  setActionModal('reactivate');
+                  setActionReason('');
+                }}
+                className="px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-semibold transition inline-flex items-center gap-1.5"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Reactivate Account</span>
+              </button>
+            )}
+
+            <button
+              onClick={() => {
+                setActionModal('delete');
+                setActionReason('');
+                setConfirmEmailInput('');
+              }}
+              className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-red-950/40 border border-zinc-700 hover:border-red-500/40 text-zinc-300 hover:text-red-400 text-xs font-semibold transition inline-flex items-center gap-1.5"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Safely Remove</span>
+            </button>
           </div>
         </div>
 
@@ -179,24 +317,17 @@ export default function AdminUserDetailPage() {
           <div>
             <div className="text-[10px] font-mono text-zinc-400 uppercase">Last Login</div>
             <div className="font-medium text-zinc-200 mt-0.5">
-              {user.lastLoginAt
-                ? new Date(user.lastLoginAt).toLocaleString(undefined, {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })
-                : 'Never'}
+              {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : 'No recorded login'}
             </div>
           </div>
           <div>
             <div className="text-[10px] font-mono text-zinc-400 uppercase">Active Sessions</div>
-            <div className="font-medium text-emerald-400 mt-0.5 font-mono">
-              {user.activeSessionsCount} active ({user.totalSessionsCount} total)
+            <div className="font-medium text-emerald-400 mt-0.5">
+              {user.activeSessionsCount} active
             </div>
           </div>
           <div>
-            <div className="text-[10px] font-mono text-zinc-400 uppercase">Two-Factor MFA</div>
+            <div className="text-[10px] font-mono text-zinc-400 uppercase">MFA Status</div>
             <div className="font-medium text-zinc-300 mt-0.5">
               {user.mfaEnabled ? 'Enabled' : 'Disabled'}
             </div>
@@ -246,7 +377,6 @@ export default function AdminUserDetailPage() {
       {/* TAB 1: ACCOUNTS & BALANCES */}
       {activeTab === 'accounts' && (
         <div className="space-y-4">
-          {/* Total Valuation Header */}
           <div className="p-5 rounded-2xl bg-[#0D1117] border border-zinc-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
               <div className="text-xs font-mono uppercase tracking-wider text-zinc-400">
@@ -265,7 +395,6 @@ export default function AdminUserDetailPage() {
             </div>
           </div>
 
-          {/* Accounts Table */}
           <div className="bg-[#0D1117] border border-zinc-800 rounded-2xl overflow-hidden">
             {!accounts?.hasAccounts || accounts.accounts.length === 0 ? (
               <div className="py-12 text-center space-y-2">
@@ -312,14 +441,6 @@ export default function AdminUserDetailPage() {
                 </table>
               </div>
             )}
-          </div>
-
-          {/* Architectural Protection Banner */}
-          <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800 text-xs text-zinc-400 flex items-start gap-2.5">
-            <Info className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
-            <p className="leading-relaxed">
-              <strong>Architectural Policy:</strong> Direct balance adjustments, simulated deposits, and manual transaction injections are strictly disabled. Financial balances are solely derived from double-entry journal postings.
-            </p>
           </div>
         </div>
       )}
@@ -424,6 +545,158 @@ export default function AdminUserDetailPage() {
               <div className="text-[10px] font-mono text-zinc-400 uppercase">Audit Immutability</div>
               <div className="text-emerald-400 font-medium">Guarded by PostgreSQL DB triggers</div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: SUSPEND ACCOUNT */}
+      {actionModal === 'suspend' && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0D1117] border border-red-500/30 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-2 text-red-400 font-semibold text-sm">
+              <Ban className="w-5 h-5" />
+              <span>Suspend User Account</span>
+            </div>
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              Suspending <span className="text-white font-semibold">{user.email}</span> will immediately revoke all active sessions and block further login attempts.
+            </p>
+            <form onSubmit={handleSuspend} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-mono uppercase text-zinc-400">Suspension Reason (Required)</label>
+                <textarea
+                  required
+                  rows={3}
+                  value={actionReason}
+                  onChange={(e) => setActionReason(e.target.value)}
+                  placeholder="e.g. Compliance hold pending KYC re-verification"
+                  className="w-full bg-[#090C10] border border-zinc-800 rounded-xl p-3 text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-red-400"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  disabled={actionLoading}
+                  onClick={() => setActionModal(null)}
+                  className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoading}
+                  className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-xs font-semibold text-white transition flex items-center gap-1.5"
+                >
+                  {actionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />}
+                  <span>Confirm Suspension</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: REACTIVATE ACCOUNT */}
+      {actionModal === 'reactivate' && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0D1117] border border-emerald-500/30 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-2 text-emerald-400 font-semibold text-sm">
+              <CheckCircle2 className="w-5 h-5" />
+              <span>Reactivate User Account</span>
+            </div>
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              Reactivating <span className="text-white font-semibold">{user.email}</span> will restore platform access and allow the user to authenticate normally.
+            </p>
+            <form onSubmit={handleReactivate} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-mono uppercase text-zinc-400">Reactivation Reason (Required)</label>
+                <textarea
+                  required
+                  rows={3}
+                  value={actionReason}
+                  onChange={(e) => setActionReason(e.target.value)}
+                  placeholder="e.g. KYC verification completed successfully"
+                  className="w-full bg-[#090C10] border border-zinc-800 rounded-xl p-3 text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-emerald-400"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  disabled={actionLoading}
+                  onClick={() => setActionModal(null)}
+                  className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoading}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white transition flex items-center gap-1.5"
+                >
+                  {actionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                  <span>Confirm Reactivation</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: SAFELY REMOVE & ANONYMIZE */}
+      {actionModal === 'delete' && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0D1117] border border-red-500/40 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-2 text-red-400 font-semibold text-sm">
+              <AlertTriangle className="w-5 h-5 text-red-400" />
+              <span>Controlled Account Removal & Anonymization</span>
+            </div>
+            <p className="text-xs text-zinc-300 leading-relaxed">
+              This process permanently deactivates the account, revokes all credentials, and anonymizes personal data.
+              Double-entry financial records and immutable audit logs are preserved for regulatory compliance.
+            </p>
+            <form onSubmit={handleAnonymizeDelete} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-mono uppercase text-zinc-400">
+                  Type <span className="text-amber-400 font-semibold select-all">{user.email}</span> to confirm:
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={confirmEmailInput}
+                  onChange={(e) => setConfirmEmailInput(e.target.value)}
+                  placeholder={user.email}
+                  className="w-full bg-[#090C10] border border-zinc-800 rounded-xl p-3 text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-red-400 font-mono"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-mono uppercase text-zinc-400">Removal Reason (Required)</label>
+                <textarea
+                  required
+                  rows={2}
+                  value={actionReason}
+                  onChange={(e) => setActionReason(e.target.value)}
+                  placeholder="e.g. GDPR right-to-be-forgotten request verified"
+                  className="w-full bg-[#090C10] border border-zinc-800 rounded-xl p-3 text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-red-400"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  disabled={actionLoading}
+                  onClick={() => setActionModal(null)}
+                  className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoading || confirmEmailInput.trim().toLowerCase() !== user.email.trim().toLowerCase()}
+                  className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold text-white transition flex items-center gap-1.5"
+                >
+                  {actionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                  <span>Permanently Anonymize</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

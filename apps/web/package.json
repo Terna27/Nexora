@@ -4,6 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",
+    "build:packages": "pnpm --filter @cryptiq/types --filter @cryptiq/design-tokens --filter @cryptiq/api-client build",
+    "build:web": "next build",
+    "prebuild": "pnpm --filter @cryptiq/types --filter @cryptiq/design-tokens --filter @cryptiq/api-client build",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

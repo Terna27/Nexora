@@ -13,6 +13,7 @@ from models.user import (
     EmailVerificationTokenModel,
     PasswordResetTokenModel,
     AuthAuditEventModel,
+    AdminAuditLogModel,
 )
 from schemas.auth import (
     RegisterRequest,
@@ -137,6 +138,65 @@ def require_role(allowed_roles: List[str]):
             )
         return user
     return role_checker
+
+async def record_admin_audit_event(
+    db: AsyncSession,
+    admin_user_id: Optional[str],
+    action: str,
+    target_entity: Optional[str] = None,
+    target_id: Optional[str] = None,
+    ip_address: Optional[str] = None,
+    outcome: str = "SUCCESS",
+    details: Optional[str] = None,
+    reason: Optional[str] = None,
+):
+    """Durable admin audit logger with strictly safe fields (no credentials/tokens)."""
+    try:
+        event = AdminAuditLogModel(
+            admin_user_id=admin_user_id,
+            action=action,
+            target_entity=target_entity,
+            target_id=target_id,
+            ip_address=ip_address,
+            outcome=outcome,
+            details=details,
+            reason=reason,
+        )
+        db.add(event)
+        await db.commit()
+    except Exception as e:
+        logger.error(f"Failed to record admin audit event: {e}")
+
+async def require_admin(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: UserModel = Depends(get_current_user),
+) -> UserModel:
+    """
+    Server-side administrative authorization dependency.
+    - Rejects unauthenticated requests with 401 via get_current_user.
+    - Evaluates verified database user role; rejects non-admins with 403.
+    - Logs unauthorized attempts to the durable admin audit log.
+    - Role from client-side cookies, query parameters, or payload is strictly ignored.
+    """
+    if user.role != "admin":
+        ip = request.client.host if request.client else "unknown"
+        await record_admin_audit_event(
+            db=db,
+            admin_user_id=user.id,
+            action="ADMIN_UNAUTHORIZED_ACCESS_ATTEMPT",
+            target_entity="admin_portal",
+            target_id=None,
+            ip_address=ip,
+            outcome="FORBIDDEN",
+            details=f"User {user.email} with role '{user.role}' attempted unauthorized admin access",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrative privileges required."
+        )
+    return user
+
 
 # ----------------- ENDPOINTS -----------------
 

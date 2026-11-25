@@ -5,6 +5,7 @@ from models.user import (
     EmailVerificationTokenModel,
     PasswordResetTokenModel,
     AuthAuditEventModel,
+    AdminAuditLogModel,
 )
 from models.financial import (
     LegalEntityModel,
@@ -28,6 +29,7 @@ __all__ = [
     "EmailVerificationTokenModel",
     "PasswordResetTokenModel",
     "AuthAuditEventModel",
+    "AdminAuditLogModel",
     "LegalEntityModel",
     "AssetModel",
     "AssetNetworkModel",

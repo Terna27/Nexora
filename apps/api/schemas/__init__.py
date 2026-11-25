@@ -6,6 +6,15 @@ from schemas.finance import (
     LedgerEntrySchema,
     HealthResponse,
 )
+from schemas.admin import (
+    AdminUserSummarySchema,
+    AdminUserDetailSchema,
+    AdminUserListResponse,
+    AdminUserAccountsResponse,
+    AdminAuditLogSchema,
+    AdminAuditLogsListResponse,
+    AdminOverviewResponse,
+)
 
 __all__ = [
     "SupportedAsset",
@@ -14,4 +23,11 @@ __all__ = [
     "ReturnScenarioResponse",
     "LedgerEntrySchema",
     "HealthResponse",
+    "AdminUserSummarySchema",
+    "AdminUserDetailSchema",
+    "AdminUserListResponse",
+    "AdminUserAccountsResponse",
+    "AdminAuditLogSchema",
+    "AdminAuditLogsListResponse",
+    "AdminOverviewResponse",
 ]

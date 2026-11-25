@@ -16,6 +16,13 @@ import {
   SessionsListResponse,
   UserPortfolioResponse,
   UserTransactionsListResponse,
+  AdminUserSummary,
+  AdminUserDetail,
+  AdminUserListResponse,
+  AdminUserAccountsResponse,
+  AdminAuditLog,
+  AdminAuditLogsListResponse,
+  AdminOverviewMetrics,
 } from '@cryptiq/types';
 import { ILLUSTRATIVE_ASSET_PRICES, INITIAL_ILLUSTRATIVE_LEDGER } from './mockData';
 
@@ -363,6 +370,155 @@ export class CryptiqApiClient {
       return await res.json();
     } catch {
       return { items: [], total: 0, page: 1, pageSize: 20, pages: 0 };
+    }
+  }
+
+  /**
+   * Admin: Get authoritative platform overview counts
+   */
+  async getAdminOverview(): Promise<AdminOverviewMetrics | null> {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/v1/admin/overview`, {
+        cache: 'no-store',
+        credentials: 'include',
+        headers: this.getAuthHeaders(),
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Admin: List users with search, status filtering, and pagination
+   */
+  async getAdminUsers(params?: {
+    page?: number;
+    pageSize?: number;
+    search?: string;
+    isActive?: boolean;
+    isVerified?: boolean;
+    role?: string;
+  }): Promise<AdminUserListResponse> {
+    const query = new URLSearchParams();
+    if (params?.page) query.set('page', params.page.toString());
+    if (params?.pageSize) query.set('page_size', params.pageSize.toString());
+    if (params?.search) query.set('search', params.search);
+    if (params?.isActive !== undefined) query.set('is_active', params.isActive.toString());
+    if (params?.isVerified !== undefined) query.set('is_verified', params.isVerified.toString());
+    if (params?.role) query.set('role', params.role);
+
+    const queryString = query.toString() ? `?${query.toString()}` : '';
+    try {
+      const res = await fetch(`${this.baseUrl}/api/v1/admin/users${queryString}`, {
+        cache: 'no-store',
+        credentials: 'include',
+        headers: this.getAuthHeaders(),
+      });
+      if (!res.ok) return { items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 };
+      return await res.json();
+    } catch {
+      return { items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 };
+    }
+  }
+
+  /**
+   * Admin: Get detailed user profile and session summary
+   */
+  async getAdminUserDetail(userId: string): Promise<AdminUserDetail | null> {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/v1/admin/users/${userId}`, {
+        cache: 'no-store',
+        credentials: 'include',
+        headers: this.getAuthHeaders(),
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Admin: Read-only inspection of target user's financial accounts & authoritative balances
+   */
+  async getAdminUserAccounts(userId: string): Promise<AdminUserAccountsResponse | null> {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/v1/admin/users/${userId}/accounts`, {
+        cache: 'no-store',
+        credentials: 'include',
+        headers: this.getAuthHeaders(),
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Admin: Read-only inspection of target user's financial transaction history
+   */
+  async getAdminUserTransactions(
+    userId: string,
+    params?: {
+      page?: number;
+      pageSize?: number;
+      transactionType?: string;
+      status?: string;
+      asset?: string;
+    }
+  ): Promise<UserTransactionsListResponse> {
+    const query = new URLSearchParams();
+    if (params?.page) query.set('page', params.page.toString());
+    if (params?.pageSize) query.set('page_size', params.pageSize.toString());
+    if (params?.transactionType) query.set('transaction_type', params.transactionType);
+    if (params?.status) query.set('status', params.status);
+    if (params?.asset) query.set('asset', params.asset);
+
+    const queryString = query.toString() ? `?${query.toString()}` : '';
+    try {
+      const res = await fetch(`${this.baseUrl}/api/v1/admin/users/${userId}/transactions${queryString}`, {
+        cache: 'no-store',
+        credentials: 'include',
+        headers: this.getAuthHeaders(),
+      });
+      if (!res.ok) return { items: [], total: 0, page: 1, pageSize: 20, pages: 0 };
+      return await res.json();
+    } catch {
+      return { items: [], total: 0, page: 1, pageSize: 20, pages: 0 };
+    }
+  }
+
+  /**
+   * Admin: Inspect durable administrative audit logs
+   */
+  async getAdminAuditLogs(params?: {
+    page?: number;
+    pageSize?: number;
+    action?: string;
+    adminUserId?: string;
+    targetId?: string;
+  }): Promise<AdminAuditLogsListResponse> {
+    const query = new URLSearchParams();
+    if (params?.page) query.set('page', params.page.toString());
+    if (params?.pageSize) query.set('page_size', params.pageSize.toString());
+    if (params?.action) query.set('action', params.action);
+    if (params?.adminUserId) query.set('admin_user_id', params.adminUserId);
+    if (params?.targetId) query.set('target_id', params.targetId);
+
+    const queryString = query.toString() ? `?${query.toString()}` : '';
+    try {
+      const res = await fetch(`${this.baseUrl}/api/v1/admin/audit-logs${queryString}`, {
+        cache: 'no-store',
+        credentials: 'include',
+        headers: this.getAuthHeaders(),
+      });
+      if (!res.ok) return { items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 };
+      return await res.json();
+    } catch {
+      return { items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 };
     }
   }
 }

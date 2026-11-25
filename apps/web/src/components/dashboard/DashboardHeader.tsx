@@ -285,6 +285,17 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                       Security & 2FA
                     </button>
 
+                    {user.role === 'admin' && (
+                      <Link
+                        href="/admin"
+                        onClick={() => setIsProfileOpen(false)}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-amber-500 hover:bg-amber-500/10 transition-colors"
+                      >
+                        <ShieldCheck className="w-4 h-4 text-amber-500" />
+                        Staff Admin Portal
+                      </Link>
+                    )}
+
                     <div className="my-1 border-t border-light-border dark:border-dark-border" />
 
                     <button

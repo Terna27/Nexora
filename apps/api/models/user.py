@@ -89,3 +89,20 @@ class AuthAuditEventModel(Base):
     ip_address = Column(String(45), nullable=True)
     details = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+
+class AdminAuditLogModel(Base):
+    __tablename__ = "admin_audit_logs"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    admin_user_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    action = Column(String(64), nullable=False, index=True)
+    target_entity = Column(String(64), nullable=True, index=True)
+    target_id = Column(String(64), nullable=True, index=True)
+    ip_address = Column(String(45), nullable=True)
+    outcome = Column(String(32), nullable=False, default="SUCCESS")
+    details = Column(String(500), nullable=True)
+    reason = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+
+    admin_user = relationship("UserModel", foreign_keys=[admin_user_id])
+

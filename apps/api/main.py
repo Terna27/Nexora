@@ -14,6 +14,7 @@ from routes.scenario import router as scenario_router
 from routes.auth import router as auth_router
 from routes.portfolio import router as portfolio_router
 from routes.transactions import router as transactions_router
+from routes.admin import router as admin_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("cryptiq-api")
@@ -65,6 +66,7 @@ app.include_router(quotes_router, prefix=settings.API_V1_PREFIX)
 app.include_router(scenario_router, prefix=settings.API_V1_PREFIX)
 app.include_router(portfolio_router, prefix=settings.API_V1_PREFIX)
 app.include_router(transactions_router, prefix=settings.API_V1_PREFIX)
+app.include_router(admin_router, prefix=settings.API_V1_PREFIX)
 
 @app.get("/")
 async def root():

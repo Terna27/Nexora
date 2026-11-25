@@ -534,7 +534,7 @@ async def test_migration_and_schema_integrity():
         res = await session.execute(text("SELECT version_num FROM alembic_version;"))
         versions = [r[0] for r in res.fetchall()]
         assert len(versions) > 0
-        assert "0005_unitization_nav" in versions
+        assert any(v in ["0005_unitization_nav", "0006_admin_audit_log"] for v in versions)
 
         # Query information_schema for core financial tables
         res_tables = await session.execute(text("""

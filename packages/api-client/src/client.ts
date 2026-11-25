@@ -23,6 +23,8 @@ import {
   AdminAuditLog,
   AdminAuditLogsListResponse,
   AdminOverviewMetrics,
+  AdminBootstrapStatusResponse,
+  AdminBootstrapRequest,
 } from '@cryptiq/types';
 import { ILLUSTRATIVE_ASSET_PRICES, INITIAL_ILLUSTRATIVE_LEDGER } from './mockData';
 
@@ -214,6 +216,49 @@ export class CryptiqApiClient {
     }
     const data = await res.json();
     return data;
+  }
+
+  /**
+   * Check whether initial administrator bootstrap is available
+   */
+  async getBootstrapStatus(): Promise<AdminBootstrapStatusResponse> {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/v1/auth/bootstrap/status`, {
+        cache: 'no-store',
+      });
+      if (!res.ok) {
+        return { isAvailable: false, hasAdmin: true, message: 'Status check returned an error' };
+      }
+      return await res.json();
+    } catch {
+      return { isAvailable: false, hasAdmin: true, message: 'Status check failed' };
+    }
+  }
+
+  /**
+   * One-time first administrator setup
+   */
+  async bootstrapAdmin(data: AdminBootstrapRequest): Promise<LoginResponse> {
+    const res = await fetch(`${this.baseUrl}/api/v1/auth/bootstrap`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(data),
+    });
+    const result: LoginResponse = await res.json();
+    if (!res.ok) {
+      const err = typeof (result as any).detail === 'string' ? (result as any).detail : 'Bootstrap failed';
+      throw new Error(err || 'Bootstrap failed');
+    }
+    if (result.token) {
+      this.token = result.token;
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('nexora_token', result.token);
+        } catch {}
+      }
+    }
+    return result;
   }
 
   /**

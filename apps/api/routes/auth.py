@@ -1,9 +1,10 @@
 import logging
+import secrets
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Cookie
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select, update, text
 
 from database import get_db
 from config import settings
@@ -27,6 +28,8 @@ from schemas.auth import (
     ResetPasswordRequest,
     SessionsListResponse,
     SessionInfo,
+    AdminBootstrapStatusResponse,
+    AdminBootstrapRequest,
 )
 from security import (
     hash_password,
@@ -618,3 +621,206 @@ async def revoke_session(
     session.revoked_at = datetime.now(timezone.utc)
     await db.commit()
     return GenericAuthResponse(success=True, message="Session revoked successfully.")
+
+
+@router.get("/bootstrap/status", response_model=AdminBootstrapStatusResponse)
+async def get_bootstrap_status(db: AsyncSession = Depends(get_db)):
+    """
+    Returns whether initial administrator bootstrap is available.
+    Authoritative database query: returns is_available=False if any admin user exists
+    or if ADMIN_BOOTSTRAP_TOKEN is not configured.
+    """
+    admin_stmt = select(UserModel.id).where(UserModel.role == "admin").limit(1)
+    admin_res = await db.execute(admin_stmt)
+    has_admin = admin_res.scalar_one_or_none() is not None
+
+    token_configured = bool(settings.ADMIN_BOOTSTRAP_TOKEN and settings.ADMIN_BOOTSTRAP_TOKEN.strip())
+    is_available = (not has_admin) and token_configured
+
+    if has_admin:
+        message = "Initial administrator setup has already been completed."
+    elif not token_configured:
+        message = "Administrator bootstrap is disabled (bootstrap token not configured)."
+    else:
+        message = "Initial administrator setup is available."
+
+    return AdminBootstrapStatusResponse(
+        is_available=is_available,
+        has_admin=has_admin,
+        message=message,
+    )
+
+
+@router.post("/bootstrap", response_model=LoginResponse, status_code=status.HTTP_201_CREATED)
+async def bootstrap_admin(
+    req: AdminBootstrapRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Atomic one-time first administrator account creation.
+    Requires valid private ADMIN_BOOTSTRAP_TOKEN.
+    Fails with 409 Conflict if an administrator account already exists.
+    Uses PostgreSQL transaction advisory lock to guarantee mutual exclusion during concurrent calls.
+    """
+    ip = request.client.host if request.client else "unknown"
+    check_rate_limit(f"bootstrap_{ip}", max_attempts=5, window_seconds=300)
+
+    # 1. Validate bootstrap token configuration
+    configured_token = settings.ADMIN_BOOTSTRAP_TOKEN
+    if not configured_token or not configured_token.strip():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrative bootstrap is disabled on this server."
+        )
+
+    # 2. Constant-time comparison of bootstrap secret
+    provided_token = req.bootstrap_token.strip()
+    if not secrets.compare_digest(provided_token, configured_token.strip()):
+        await record_audit_event(
+            db=db,
+            user_id=None,
+            event_type="ADMIN_BOOTSTRAP_INVALID_TOKEN",
+            ip_address=ip,
+            details=f"Failed admin bootstrap attempt with invalid token for email {req.email}",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid administrator bootstrap credential."
+        )
+
+    # 3. Validate password match & strength
+    if req.password != req.confirm_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Passwords do not match."
+        )
+
+    is_strong, err_msg = validate_password_strength(req.password)
+    if not is_strong:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=err_msg
+        )
+
+    # 4. Normalize & validate email
+    try:
+        normalized_email = normalize_and_validate_email(req.email)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+    # 5. Acquire transactional advisory lock for concurrency protection
+    if db.bind and db.bind.dialect.name == "postgresql":
+        await db.execute(text("SELECT pg_advisory_xact_lock(hashtext('nexora_admin_bootstrap_lock'))"))
+
+    # 6. Authoritative check: verify no administrator exists
+    admin_stmt = select(UserModel.id).where(UserModel.role == "admin").limit(1)
+    admin_res = await db.execute(admin_stmt)
+    if admin_res.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An administrator account already exists. Bootstrap is permanently closed."
+        )
+
+    # 7. Check if the specified email is already in use
+    existing_user_stmt = select(UserModel.id).where(UserModel.email == normalized_email).limit(1)
+    existing_user_res = await db.execute(existing_user_stmt)
+    if existing_user_res.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="An account with this email address already exists."
+        )
+
+    # 8. Create the first administrator user
+    pwd_hash = hash_password(req.password)
+    admin_user = UserModel(
+        full_name=req.full_name.strip(),
+        email=normalized_email,
+        password_hash=pwd_hash,
+        role="admin",
+        is_active=True,
+        is_verified=True,
+    )
+    db.add(admin_user)
+    await db.flush()
+
+    # 9. Create user session
+    raw_session_token, token_hash = generate_secure_token()
+    now = datetime.now(timezone.utc)
+    duration_hours = settings.SESSION_EXPIRE_HOURS
+    expires_at = now + timedelta(hours=duration_hours)
+    user_agent = request.headers.get("User-Agent", "Unknown")[:255]
+
+    session = UserSessionModel(
+        user_id=admin_user.id,
+        session_token_hash=token_hash,
+        ip_address=ip,
+        user_agent=user_agent,
+        expires_at=expires_at,
+    )
+    db.add(session)
+
+    # 10. Audit logging
+    await record_audit_event(
+        db=db,
+        user_id=admin_user.id,
+        event_type="ADMIN_BOOTSTRAP_COMPLETE",
+        ip_address=ip,
+        details="Initial administrator account successfully created via bootstrap",
+    )
+    await record_admin_audit_event(
+        db=db,
+        admin_user_id=admin_user.id,
+        action="ADMIN_BOOTSTRAP_COMPLETE",
+        target_entity="user",
+        target_id=admin_user.id,
+        ip_address=ip,
+        outcome="SUCCESS",
+        details="Initial administrator account created and bootstrap closed",
+    )
+
+    await db.commit()
+
+    # 11. Set authentication cookies
+    max_age = int(timedelta(hours=duration_hours).total_seconds())
+    is_prod = settings.ENVIRONMENT == "production" or settings.SECURE_COOKIES
+    cookie_samesite = "none" if is_prod else settings.COOKIE_SAME_SITE
+    cookie_secure = True if is_prod else settings.SECURE_COOKIES
+
+    response.set_cookie(
+        key=settings.SESSION_COOKIE_NAME,
+        value=raw_session_token,
+        max_age=max_age,
+        httponly=True,
+        secure=cookie_secure,
+        samesite=cookie_samesite,
+        path="/",
+    )
+    if settings.SESSION_COOKIE_NAME != "nexora_session":
+        response.set_cookie(
+            key="nexora_session",
+            value=raw_session_token,
+            max_age=max_age,
+            httponly=True,
+            secure=cookie_secure,
+            samesite=cookie_samesite,
+            path="/",
+        )
+
+    return LoginResponse(
+        success=True,
+        message="Initial administrator account created successfully.",
+        user=UserResponse(
+            id=admin_user.id,
+            full_name=admin_user.full_name,
+            email=admin_user.email,
+            role=admin_user.role,
+            is_verified=admin_user.is_verified,
+            created_at=admin_user.created_at,
+        ),
+        token=raw_session_token,
+    )

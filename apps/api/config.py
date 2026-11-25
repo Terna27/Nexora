@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import List, Union, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator
 
@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     PASSWORD_RESET_TOKEN_EXPIRE_HOURS: int = 1
     SECURE_COOKIES: bool = False
     COOKIE_SAME_SITE: str = "lax"
+
+    # First Administrator Bootstrap Security
+    ADMIN_BOOTSTRAP_TOKEN: Optional[str] = None
 
     # Email Service Configuration
     EMAIL_PROVIDER: str = "console"

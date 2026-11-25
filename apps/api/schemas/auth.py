@@ -79,3 +79,16 @@ class SessionInfo(CryptiqAuthBase):
 class SessionsListResponse(CryptiqAuthBase):
     success: bool
     sessions: List[SessionInfo]
+
+class AdminBootstrapStatusResponse(CryptiqAuthBase):
+    is_available: bool
+    has_admin: bool
+    message: str
+
+class AdminBootstrapRequest(CryptiqAuthBase):
+    full_name: str = Field(..., min_length=2, max_length=120)
+    email: str = Field(..., max_length=255)
+    password: str = Field(..., min_length=10, max_length=128)
+    confirm_password: str = Field(..., min_length=10, max_length=128)
+    bootstrap_token: str = Field(..., min_length=1)
+

@@ -62,3 +62,18 @@ export interface SessionsListResponse {
   success: boolean;
   sessions: SessionInfo[];
 }
+
+export interface AdminBootstrapStatusResponse {
+  isAvailable: boolean;
+  hasAdmin: boolean;
+  message: string;
+}
+
+export interface AdminBootstrapRequest {
+  fullName: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+  bootstrapToken: string;
+}
+

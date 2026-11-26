@@ -123,3 +123,18 @@ class UserInvestmentRecordModel(Base):
     updated_by_admin = relationship("UserModel", foreign_keys=[updated_by_admin_id])
 
 
+class PlatformInvestmentConfigurationModel(Base):
+    __tablename__ = "platform_investment_configurations"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    amount = Column(Numeric(precision=38, scale=18), nullable=False)
+    currency = Column(String(10), nullable=False, default="USD")
+    updated_by_admin_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    last_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    updated_by_admin = relationship("UserModel", foreign_keys=[updated_by_admin_id])
+
+
+

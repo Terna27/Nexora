@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { cryptiqApi } from '@cryptiq/api-client';
 import { AdminOverviewMetrics, AdminAuditLog } from '@cryptiq/types';
+import { GlobalPlatformInvestmentSection } from '@/components/admin/GlobalPlatformInvestmentSection';
 import {
   Users,
   CheckCircle2,
@@ -242,6 +243,9 @@ export default function AdminOverviewPage() {
           </div>
         </div>
       </div>
+
+      {/* DEDICATED SECTION: GLOBAL PLATFORM INVESTMENT MANAGEMENT */}
+      <GlobalPlatformInvestmentSection />
 
       {/* SECTION 3: QUICK OPERATIONS NAVIGATION */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

@@ -16,6 +16,7 @@ from models.user import (
     EmailVerificationTokenModel,
     PasswordResetTokenModel,
     UserInvestmentRecordModel,
+    PlatformInvestmentConfigurationModel,
 )
 from models.financial import (
     AccountModel,
@@ -46,7 +47,10 @@ from schemas.admin import (
     AdminAuditLogsListResponse,
     AdminInvestmentRecordResponse,
     AdminInvestmentRecordUpdateRequest,
+    AdminPlatformInvestmentResponse,
+    AdminPlatformInvestmentUpdateRequest,
 )
+from services.market_rates import SUPPORTED_CURRENCIES
 from schemas.finance import (
     UserAccountBalanceSchema,
     UserTransactionsListResponse,
@@ -1033,6 +1037,152 @@ async def update_admin_user_investment_record(
         lastReason=rec.last_reason,
         createdAt=rec.created_at.isoformat() if rec.created_at else None,
         updatedAt=rec.updated_at.isoformat() if rec.updated_at else None,
+    )
+
+
+# -------------------------------------------------------------------------
+# Global Platform Investment Management Endpoints (Admin Controlled)
+# -------------------------------------------------------------------------
+
+@router.get("/platform/investment-configuration", response_model=AdminPlatformInvestmentResponse)
+async def get_admin_platform_investment_configuration(
+    db: AsyncSession = Depends(get_db),
+    admin_user: UserModel = Depends(require_admin),
+) -> AdminPlatformInvestmentResponse:
+    """
+    Retrieve the current administrator-configured global platform investment configuration.
+    """
+    stmt = (
+        select(PlatformInvestmentConfigurationModel, UserModel.email)
+        .outerjoin(UserModel, UserModel.id == PlatformInvestmentConfigurationModel.updated_by_admin_id)
+        .order_by(PlatformInvestmentConfigurationModel.updated_at.desc())
+        .limit(1)
+    )
+    row = (await db.execute(stmt)).first()
+    supported_keys = list(SUPPORTED_CURRENCIES.keys())
+
+    if not row:
+        return AdminPlatformInvestmentResponse(
+            isConfigured=False,
+            amount=None,
+            currency="USD",
+            updatedByAdminId=None,
+            updatedByAdminEmail=None,
+            lastReason=None,
+            createdAt=None,
+            updatedAt=None,
+            supportedCurrencies=supported_keys,
+        )
+
+    rec, admin_email = row
+    amount_str = f"{rec.amount:.2f}" if rec.currency in ["USD", "USDT", "EUR", "GBP", "NGN"] else f"{rec.amount:.8f}".rstrip("0").rstrip(".")
+
+    return AdminPlatformInvestmentResponse(
+        id=rec.id,
+        isConfigured=True,
+        amount=amount_str,
+        currency=rec.currency,
+        updatedByAdminId=rec.updated_by_admin_id,
+        updatedByAdminEmail=admin_email,
+        lastReason=rec.last_reason,
+        createdAt=rec.created_at.isoformat() if rec.created_at else None,
+        updatedAt=rec.updated_at.isoformat() if rec.updated_at else None,
+        supportedCurrencies=supported_keys,
+    )
+
+
+@router.put("/platform/investment-configuration", response_model=AdminPlatformInvestmentResponse)
+async def update_admin_platform_investment_configuration(
+    req: AdminPlatformInvestmentUpdateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin_user: UserModel = Depends(require_admin),
+) -> AdminPlatformInvestmentResponse:
+    """
+    Set or update the global platform investment amount displayed across all investor dashboards.
+    - Global platform metric, not bound to an individual investor.
+    - Validates currency against platform supported currency definitions.
+    - Immutably audit-logged to admin_audit_logs.
+    - Does not alter financial ledger journal entries or user balances.
+    """
+    currency_clean = req.currency.upper().strip()
+    if currency_clean not in SUPPORTED_CURRENCIES:
+        supported_list = ", ".join(SUPPORTED_CURRENCIES.keys())
+        raise HTTPException(
+            status_code=400,
+            detail=f"Currency '{req.currency}' is not supported. Supported currencies are: {supported_list}",
+        )
+
+    if req.amount < Decimal("0"):
+        raise HTTPException(status_code=400, detail="Investment amount must be greater than or equal to zero.")
+
+    if not req.reason or len(req.reason.strip()) < 5:
+        raise HTTPException(status_code=400, detail="A detailed audit reason of at least 5 characters is required.")
+
+    stmt = (
+        select(PlatformInvestmentConfigurationModel)
+        .order_by(PlatformInvestmentConfigurationModel.updated_at.desc())
+        .limit(1)
+    )
+    rec = (await db.execute(stmt)).scalars().first()
+    prev_amount = rec.amount if rec else None
+    prev_currency = rec.currency if rec else None
+    now = datetime.now(timezone.utc)
+
+    if rec:
+        rec.amount = req.amount
+        rec.currency = currency_clean
+        rec.updated_by_admin_id = admin_user.id
+        rec.last_reason = req.reason.strip()
+        rec.updated_at = now
+    else:
+        rec = PlatformInvestmentConfigurationModel(
+            amount=req.amount,
+            currency=currency_clean,
+            updated_by_admin_id=admin_user.id,
+            last_reason=req.reason.strip(),
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(rec)
+
+    ip = request.client.host if request.client else "unknown"
+    audit_details = json.dumps({
+        "previous_amount": str(prev_amount) if prev_amount is not None else None,
+        "previous_currency": prev_currency,
+        "new_amount": str(req.amount),
+        "currency": currency_clean,
+    })
+
+    await record_admin_audit_event(
+        db=db,
+        admin_user_id=admin_user.id,
+        action="ADMIN_PLATFORM_INVESTMENT_UPDATE",
+        target_entity="platform_investment_configuration",
+        target_id=rec.id,
+        ip_address=ip,
+        outcome="SUCCESS",
+        reason=req.reason.strip(),
+        details=audit_details,
+    )
+
+    await db.commit()
+    await db.refresh(rec)
+
+    amount_str = f"{rec.amount:.2f}" if rec.currency in ["USD", "USDT", "EUR", "GBP", "NGN"] else f"{rec.amount:.8f}".rstrip("0").rstrip(".")
+    supported_keys = list(SUPPORTED_CURRENCIES.keys())
+
+    return AdminPlatformInvestmentResponse(
+        id=rec.id,
+        isConfigured=True,
+        amount=amount_str,
+        currency=rec.currency,
+        updatedByAdminId=rec.updated_by_admin_id,
+        updatedByAdminEmail=admin_user.email,
+        lastReason=rec.last_reason,
+        createdAt=rec.created_at.isoformat() if rec.created_at else None,
+        updatedAt=rec.updated_at.isoformat() if rec.updated_at else None,
+        supportedCurrencies=supported_keys,
     )
 
 

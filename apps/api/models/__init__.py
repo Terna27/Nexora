@@ -7,6 +7,7 @@ from models.user import (
     AuthAuditEventModel,
     AdminAuditLogModel,
     UserInvestmentRecordModel,
+    PlatformInvestmentConfigurationModel,
 )
 from models.financial import (
     LegalEntityModel,
@@ -32,6 +33,7 @@ __all__ = [
     "AuthAuditEventModel",
     "AdminAuditLogModel",
     "UserInvestmentRecordModel",
+    "PlatformInvestmentConfigurationModel",
     "LegalEntityModel",
     "AssetModel",
     "AssetNetworkModel",

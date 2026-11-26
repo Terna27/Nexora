@@ -101,12 +101,12 @@ export const TotalInvestedAcrossNexoraCard: React.FC = () => {
               {isAvailable ? (
                 <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold flex items-center gap-1">
                   <CheckCircle2 className="w-3 h-3" />
-                  <span>Verified Ledger</span>
+                  <span>Reported Platform Total</span>
                 </span>
               ) : (
                 <span className="px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-[10px] font-semibold flex items-center gap-1">
                   <Clock className="w-3 h-3" />
-                  <span>Unallocated</span>
+                  <span>Unconfigured</span>
                 </span>
               )}
             </div>
@@ -188,12 +188,12 @@ export const TotalInvestedAcrossNexoraCard: React.FC = () => {
                 <span>{data?.formattedDisplay || data?.convertedAmount}</span>
               </div>
 
-              {/* Base USD note if converted to a different currency */}
-              {selectedCurrency !== 'USD' && data?.baseAmountUsd && (
+              {/* Base amount note if converted to a different currency */}
+              {selectedCurrency !== (data?.baseCurrency || 'USD') && (data?.baseAmount || data?.baseAmountUsd) && (
                 <div className="text-xs text-[#64748B] dark:text-zinc-400 font-mono mt-1.5 flex items-center gap-1.5">
-                  <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
+                  <TrendingUp className="w-3.5 h-3.5 text-amber-500" />
                   <span>
-                    Base Ledger Value: ${Number(data.baseAmountUsd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                    Configured Base: {Number(data.baseAmount || data.baseAmountUsd).toLocaleString('en-US', { minimumFractionDigits: 2 })} {data.baseCurrency || 'USD'}
                   </span>
                 </div>
               )}
@@ -240,11 +240,11 @@ export const TotalInvestedAcrossNexoraCard: React.FC = () => {
           </div>
           <div className="space-y-1">
             <h3 className="text-sm font-bold text-[#141518] dark:text-white">
-              Platform Investment Reporting Not Yet Available
+              Platform Investment Reporting Unconfigured
             </h3>
             <p className="text-xs text-[#64748B] dark:text-dark-textSecondary max-w-lg mx-auto">
               {data?.statusMessage ||
-                'No settled platform investment allocations have been recorded yet. As capital is allocated and settled into investment units, the aggregate total across all platform participants will be displayed here in your selected currency.'}
+                'No global platform investment amount has been configured yet by the administration. Once an administrator configures the global figure, it will appear here converted into your preferred display currency.'}
             </p>
           </div>
           {valuationDate && (

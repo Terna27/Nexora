@@ -168,15 +168,20 @@ export interface UserInvestmentRecord {
 }
 
 export interface PlatformInvestmentTotal {
+  isConfigured: boolean;
   isAvailable: boolean;
   baseCurrency: string;
-  baseAmountUsd: string | null;
+  baseAmount: string | null;
+  baseAmountUsd?: string | null;
   targetCurrency: string;
   convertedAmount: string | null;
   formattedDisplay: string | null;
   exchangeRate: string | null;
   rateSource: string;
   valuationTimestamp: string;
+  updatedAt?: string | null;
+  updatedByAdminEmail?: string | null;
+  lastReason?: string | null;
   statusMessage: string;
   disclaimer: string;
   supportedCurrencies: string[];

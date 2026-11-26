@@ -176,3 +176,23 @@ export interface AdminInvestmentRecordUpdateRequest {
   reason: string;
 }
 
+export interface AdminPlatformInvestmentConfig {
+  id?: string | null;
+  isConfigured: boolean;
+  amount: string | null;
+  currency: string;
+  updatedByAdminId?: string | null;
+  updatedByAdminEmail?: string | null;
+  lastReason?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  supportedCurrencies: string[];
+}
+
+export interface AdminPlatformInvestmentUpdateRequest {
+  amount: number | string;
+  currency: string;
+  reason: string;
+}
+
+

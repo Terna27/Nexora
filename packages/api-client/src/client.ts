@@ -40,6 +40,8 @@ import {
   AdminInvestmentRecordUpdateRequest,
   UserInvestmentRecord,
   PlatformInvestmentTotal,
+  AdminPlatformInvestmentConfig,
+  AdminPlatformInvestmentUpdateRequest,
 } from '@cryptiq/types';
 import { ILLUSTRATIVE_ASSET_PRICES, INITIAL_ILLUSTRATIVE_LEDGER } from './mockData';
 
@@ -911,6 +913,47 @@ export class CryptiqApiClient {
       const msg = typeof errorData.detail === 'string'
         ? errorData.detail
         : (Array.isArray(errorData.detail) ? errorData.detail.map((d: any) => d.msg).join(', ') : 'Failed to retrieve platform investment total.');
+      throw new Error(msg);
+    }
+    return await res.json();
+  }
+
+  /**
+   * Admin: Retrieve the current administrator-configured global platform investment configuration
+   */
+  async getAdminPlatformInvestmentConfig(): Promise<AdminPlatformInvestmentConfig> {
+    const res = await fetch(`${this.baseUrl}/api/v1/admin/platform/investment-configuration`, {
+      cache: 'no-store',
+      credentials: 'include',
+      headers: this.getAuthHeaders(),
+    });
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({ detail: 'Failed to retrieve platform investment configuration.' }));
+      const msg = typeof errorData.detail === 'string'
+        ? errorData.detail
+        : (Array.isArray(errorData.detail) ? errorData.detail.map((d: any) => d.msg).join(', ') : 'Failed to retrieve platform investment configuration.');
+      throw new Error(msg);
+    }
+    return await res.json();
+  }
+
+  /**
+   * Admin: Set or update the global platform investment configuration
+   */
+  async updateAdminPlatformInvestmentConfig(
+    data: AdminPlatformInvestmentUpdateRequest
+  ): Promise<AdminPlatformInvestmentConfig> {
+    const res = await fetch(`${this.baseUrl}/api/v1/admin/platform/investment-configuration`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({ detail: 'Failed to update platform investment configuration.' }));
+      const msg = typeof errorData.detail === 'string'
+        ? errorData.detail
+        : (Array.isArray(errorData.detail) ? errorData.detail.map((d: any) => d.msg).join(', ') : 'Failed to update platform investment configuration.');
       throw new Error(msg);
     }
     return await res.json();

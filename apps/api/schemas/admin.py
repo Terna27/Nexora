@@ -161,3 +161,21 @@ class AdminInvestmentRecordUpdateRequest(BaseModel):
     currency: str = Field(default="USD", min_length=2, max_length=10)
     reason: str = Field(..., min_length=3, max_length=500, description="Mandatory audit reason")
 
+class AdminPlatformInvestmentResponse(BaseModel):
+    id: Optional[str] = None
+    isConfigured: bool
+    amount: Optional[str] = None
+    currency: str = "USD"
+    updatedByAdminId: Optional[str] = None
+    updatedByAdminEmail: Optional[str] = None
+    lastReason: Optional[str] = None
+    createdAt: Optional[str] = None
+    updatedAt: Optional[str] = None
+    supportedCurrencies: List[str]
+
+class AdminPlatformInvestmentUpdateRequest(BaseModel):
+    amount: Decimal = Field(..., ge=0, description="Global platform investment amount >= 0")
+    currency: str = Field(default="USD", min_length=2, max_length=10)
+    reason: str = Field(..., min_length=5, max_length=500, description="Mandatory audit reason")
+
+

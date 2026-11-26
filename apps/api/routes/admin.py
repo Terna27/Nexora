@@ -9,13 +9,20 @@ from sqlalchemy import select, update, func, or_, and_, distinct, text
 
 from database import get_db
 from routes.auth import require_admin, record_admin_audit_event
-from models.user import UserModel, UserSessionModel, AdminAuditLogModel
+from models.user import (
+    UserModel,
+    UserSessionModel,
+    AdminAuditLogModel,
+    EmailVerificationTokenModel,
+    PasswordResetTokenModel,
+)
 from models.financial import (
     AccountModel,
     AccountBalanceModel,
     AssetModel,
     FinancialTransactionModel,
     JournalEntryModel,
+    JournalEntryReversalModel,
     InvestorUnitActivityModel,
 )
 from schemas.admin import (
@@ -105,11 +112,24 @@ async def get_admin_overview(
     total_transactions = await db.scalar(select(func.count(FinancialTransactionModel.id))) or 0
 
     # Total Invested Capital: Trace real investment ledger records
-    stmt_invested = select(
-        func.coalesce(func.sum(InvestorUnitActivityModel.functional_usd_value), Decimal("0.0000"))
-    ).where(
-        InvestorUnitActivityModel.activity_type == "ISSUANCE",
-        InvestorUnitActivityModel.reversal_of_id.is_(None),
+    subq_reversed_issuances = select(InvestorUnitActivityModel.reversal_of_id).where(
+        InvestorUnitActivityModel.reversal_of_id.is_not(None)
+    )
+    stmt_invested = (
+        select(func.coalesce(func.sum(InvestorUnitActivityModel.functional_usd_value), Decimal("0.0000")))
+        .outerjoin(FinancialTransactionModel, FinancialTransactionModel.id == InvestorUnitActivityModel.financial_transaction_id)
+        .where(
+            InvestorUnitActivityModel.activity_type == "ISSUANCE",
+            InvestorUnitActivityModel.reversal_of_id.is_(None),
+            InvestorUnitActivityModel.id.not_in(subq_reversed_issuances),
+            or_(
+                InvestorUnitActivityModel.financial_transaction_id.is_(None),
+                and_(
+                    FinancialTransactionModel.status == "SETTLED",
+                    FinancialTransactionModel.is_fully_reversed.is_(False),
+                ),
+            ),
+        )
     )
     invested_val = await db.scalar(stmt_invested)
     if invested_val and invested_val > 0:
@@ -119,8 +139,8 @@ async def get_admin_overview(
         total_invested_usd = None
         invested_status_msg = "Investment reporting is not yet available."
 
-    # Total Withdrawn Capital: Real sum of settled WITHDRAWAL debits on liability accounts
-    stmt_withdrawn = (
+    # Total Withdrawn Capital: Real sum of settled WITHDRAWAL debits on user liability accounts minus any reversals
+    stmt_withdrawn_gross = (
         select(func.coalesce(func.sum(JournalEntryModel.functional_amount_usd), Decimal("0.0000")))
         .join(FinancialTransactionModel, FinancialTransactionModel.id == JournalEntryModel.transaction_id)
         .join(AccountModel, AccountModel.id == JournalEntryModel.account_id)
@@ -128,11 +148,30 @@ async def get_admin_overview(
             FinancialTransactionModel.transaction_type.in_(["WITHDRAWAL", "REDEMPTION"]),
             FinancialTransactionModel.status == "SETTLED",
             FinancialTransactionModel.is_fully_reversed.is_(False),
+            AccountModel.user_id.is_not(None),
+            AccountModel.account_type == "LIABILITY",
             JournalEntryModel.direction == "DEBIT",
         )
     )
-    withdrawn_val = await db.scalar(stmt_withdrawn) or Decimal("0.0000")
-    total_withdrawn_usd = f"{withdrawn_val:.2f}"
+    withdrawn_gross = await db.scalar(stmt_withdrawn_gross) or Decimal("0.0000")
+
+    stmt_withdrawn_reversals = (
+        select(func.coalesce(func.sum(JournalEntryReversalModel.reversed_functional_usd), Decimal("0.0000")))
+        .join(JournalEntryModel, JournalEntryModel.id == JournalEntryReversalModel.original_entry_id)
+        .join(FinancialTransactionModel, FinancialTransactionModel.id == JournalEntryModel.transaction_id)
+        .join(AccountModel, AccountModel.id == JournalEntryModel.account_id)
+        .where(
+            FinancialTransactionModel.transaction_type.in_(["WITHDRAWAL", "REDEMPTION"]),
+            FinancialTransactionModel.status == "SETTLED",
+            FinancialTransactionModel.is_fully_reversed.is_(False),
+            AccountModel.user_id.is_not(None),
+            AccountModel.account_type == "LIABILITY",
+            JournalEntryModel.direction == "DEBIT",
+        )
+    )
+    withdrawn_reversed = await db.scalar(stmt_withdrawn_reversals) or Decimal("0.0000")
+    withdrawn_net = max(Decimal("0.0000"), withdrawn_gross - withdrawn_reversed)
+    total_withdrawn_usd = f"{withdrawn_net:.2f}"
 
     # Withdrawal Request Counters
     pending_withdrawals = await db.scalar(
@@ -384,8 +423,20 @@ async def get_admin_user_accounts(
             )
         )
         pending_native = await db.scalar(stmt_pending) or Decimal("0")
-        reserved_native = Decimal("0")
-        available_native = settled_native - reserved_native
+
+        # Reserved/held debits: pending or approved (POSTED) withdrawals awaiting payout
+        stmt_reserved = (
+            select(func.coalesce(func.sum(JournalEntryModel.native_amount), Decimal("0")))
+            .join(FinancialTransactionModel, FinancialTransactionModel.id == JournalEntryModel.transaction_id)
+            .where(
+                JournalEntryModel.account_id == account.id,
+                JournalEntryModel.direction == "DEBIT",
+                FinancialTransactionModel.status.in_(["PENDING", "POSTED"]),
+                FinancialTransactionModel.is_fully_reversed.is_(False),
+            )
+        )
+        reserved_native = await db.scalar(stmt_reserved) or Decimal("0")
+        available_native = max(Decimal("0"), settled_native - reserved_native)
 
         account_schemas.append(
             UserAccountBalanceSchema(
@@ -618,7 +669,7 @@ async def suspend_user_account(
     # 1. Update user state
     target_user.is_active = False
 
-    # 2. Invalidate all active sessions immediately
+    # 2. Invalidate all active sessions immediately and any outstanding tokens
     now = datetime.now(timezone.utc)
     revoke_stmt = (
         update(UserSessionModel)
@@ -626,6 +677,17 @@ async def suspend_user_account(
         .values(revoked_at=now)
     )
     await db.execute(revoke_stmt)
+
+    await db.execute(
+        update(PasswordResetTokenModel)
+        .where(PasswordResetTokenModel.user_id == user_id, PasswordResetTokenModel.used_at.is_(None))
+        .values(used_at=now)
+    )
+    await db.execute(
+        update(EmailVerificationTokenModel)
+        .where(EmailVerificationTokenModel.user_id == user_id, EmailVerificationTokenModel.used_at.is_(None))
+        .values(used_at=now)
+    )
 
     # 3. Durable audit log
     ip = request.client.host if request.client else "unknown"
@@ -766,11 +828,21 @@ async def anonymize_and_remove_user_account(
     now = datetime.now(timezone.utc)
     old_email = target_user.email
 
-    # Revoke sessions
+    # Revoke sessions and tokens
     await db.execute(
         update(UserSessionModel)
         .where(UserSessionModel.user_id == user_id)
         .values(revoked_at=now)
+    )
+    await db.execute(
+        update(PasswordResetTokenModel)
+        .where(PasswordResetTokenModel.user_id == user_id, PasswordResetTokenModel.used_at.is_(None))
+        .values(used_at=now)
+    )
+    await db.execute(
+        update(EmailVerificationTokenModel)
+        .where(EmailVerificationTokenModel.user_id == user_id, EmailVerificationTokenModel.used_at.is_(None))
+        .values(used_at=now)
     )
 
     # Deactivate accounts
@@ -1098,9 +1170,9 @@ async def approve_withdrawal_request(
             detail=f"Cannot approve withdrawal in '{tx.status}' state. Only PENDING withdrawals can be approved."
         )
 
-    # 3. Verify balance sufficiency
+    # 3. Verify balance sufficiency taking into account already committed/approved (POSTED) withdrawals
     entry_stmt = (
-        select(JournalEntryModel, AccountBalanceModel)
+        select(JournalEntryModel, AccountBalanceModel, AccountModel)
         .join(AccountModel, AccountModel.id == JournalEntryModel.account_id)
         .outerjoin(AccountBalanceModel, AccountBalanceModel.account_id == AccountModel.id)
         .where(
@@ -1111,12 +1183,29 @@ async def approve_withdrawal_request(
     entry_res = await db.execute(entry_stmt)
     entry_row = entry_res.first()
     if entry_row:
-        entry, balance = entry_row
+        entry, balance, acct = entry_row
         settled_balance = balance.current_balance if balance else Decimal("0")
-        if settled_balance < entry.native_amount:
+
+        # Sum other POSTED withdrawals on this account that are awaiting payout
+        stmt_committed = (
+            select(func.coalesce(func.sum(JournalEntryModel.native_amount), Decimal("0")))
+            .join(FinancialTransactionModel, FinancialTransactionModel.id == JournalEntryModel.transaction_id)
+            .where(
+                JournalEntryModel.account_id == acct.id,
+                JournalEntryModel.direction == "DEBIT",
+                FinancialTransactionModel.id != tx.id,
+                FinancialTransactionModel.status == "POSTED",
+                FinancialTransactionModel.transaction_type == "WITHDRAWAL",
+                FinancialTransactionModel.is_fully_reversed.is_(False),
+            )
+        )
+        committed_posted = await db.scalar(stmt_committed) or Decimal("0")
+        available_balance = settled_balance - committed_posted
+
+        if available_balance < entry.native_amount:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Insufficient settled balance for approval. Account has {settled_balance}, required: {entry.native_amount}"
+                detail=f"Insufficient available balance for approval. Account has {settled_balance} settled with {committed_posted} committed to other approved withdrawals (available: {available_balance}), required: {entry.native_amount}",
             )
 
     # 4. Transition to POSTED (Approved)
@@ -1124,6 +1213,7 @@ async def approve_withdrawal_request(
     tx.status = "POSTED"
     tx.posted_at = now
 
+    approval_notes = (req.notes or "Administrative approval granted").strip()
     meta: Dict[str, Any] = {}
     if tx.metadata_json:
         try:
@@ -1134,7 +1224,7 @@ async def approve_withdrawal_request(
     meta["approved_by_admin_id"] = admin_user.id
     meta["approved_by_admin_email"] = admin_user.email
     meta["approved_at"] = now.isoformat()
-    meta["approval_notes"] = (req.notes or "Administrative approval granted").strip()
+    meta["approval_notes"] = approval_notes
     tx.metadata_json = json.dumps(meta)
 
     # 5. Durable audit log
@@ -1147,6 +1237,7 @@ async def approve_withdrawal_request(
         target_id=tx.id,
         ip_address=ip,
         outcome="SUCCESS",
+        reason=approval_notes,
         details=f"Approved withdrawal {tx.transaction_ref} (status moved to POSTED)",
     )
 

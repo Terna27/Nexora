@@ -11,7 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from main import app
 from database import AsyncSessionLocal
 from security import hash_token, hash_password
-from models.user import UserModel, UserSessionModel, AdminAuditLogModel
+from models.user import (
+    UserModel,
+    UserSessionModel,
+    AdminAuditLogModel,
+    EmailVerificationTokenModel,
+    PasswordResetTokenModel,
+)
 from models.financial import (
     LegalEntityModel,
     AssetModel,
@@ -612,3 +618,174 @@ async def test_admin_operations_forbidden_to_ordinary_users():
 
         # Transactions
         assert (await client.get("/api/v1/admin/transactions", headers=headers)).status_code == 403
+
+
+# -------------------------------------------------------------------------
+# Test 10: Multi-Withdrawal Balance Depletion & Over-Approval Prevention
+# -------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_admin_over_approval_prevention_across_multiple_withdrawals():
+    """
+    Verifies that when a user has a 1,000 USDT balance, approving Withdrawal A (700 USDT)
+    commits that balance, so attempting to subsequently approve Withdrawal B (500 USDT)
+    is rejected with 400 Insufficient Available Balance.
+    """
+    async with AsyncSessionLocal() as session:
+        admin, admin_token = await setup_test_user(session, "multi_appr_admin@nexora.test", "Multi Admin", role="admin")
+        investor, _ = await setup_test_user(session, "multi_user@nexora.test", "Multi User", role="investor")
+        entity, asset_usdt, op_acct = await get_or_create_test_environment(session)
+        # Create user account with exactly 1,000 USDT
+        user_acct = await create_user_custodial_account(session, entity, asset_usdt, investor, initial_balance=Decimal("1000.00"))
+
+        # Withdrawal A: 700 USDT
+        tx_a_id = create_uuid()
+        tx_a = FinancialTransactionModel(
+            id=tx_a_id,
+            legal_entity_id=entity.id,
+            transaction_ref=f"TX-WTH-A-{uuid.uuid4().hex[:8]}",
+            idempotency_key=f"idem-wth-a-{uuid.uuid4().hex[:8]}",
+            payload_hash="payload_wth_a",
+            source_service="PLATFORM_PORTAL",
+            transaction_type="WITHDRAWAL",
+            status="PENDING",
+            initiator_user_id=investor.id,
+            description="Withdrawal Request A (700 USDT)",
+        )
+        session.add(tx_a)
+        await session.flush()
+        j_debit_a = JournalEntryModel(
+            transaction_id=tx_a.id,
+            account_id=user_acct.id,
+            asset_id=asset_usdt.id,
+            legal_entity_id=entity.id,
+            direction="DEBIT",
+            native_amount=Decimal("700.00"),
+            functional_amount_usd=Decimal("700.00"),
+            entry_sequence=1,
+        )
+        j_credit_a = JournalEntryModel(
+            transaction_id=tx_a.id,
+            account_id=op_acct.id,
+            asset_id=asset_usdt.id,
+            legal_entity_id=entity.id,
+            direction="CREDIT",
+            native_amount=Decimal("700.00"),
+            functional_amount_usd=Decimal("700.00"),
+            entry_sequence=2,
+        )
+        session.add_all([j_debit_a, j_credit_a])
+
+        # Withdrawal B: 500 USDT
+        tx_b_id = create_uuid()
+        tx_b = FinancialTransactionModel(
+            id=tx_b_id,
+            legal_entity_id=entity.id,
+            transaction_ref=f"TX-WTH-B-{uuid.uuid4().hex[:8]}",
+            idempotency_key=f"idem-wth-b-{uuid.uuid4().hex[:8]}",
+            payload_hash="payload_wth_b",
+            source_service="PLATFORM_PORTAL",
+            transaction_type="WITHDRAWAL",
+            status="PENDING",
+            initiator_user_id=investor.id,
+            description="Withdrawal Request B (500 USDT)",
+        )
+        session.add(tx_b)
+        await session.flush()
+        j_debit_b = JournalEntryModel(
+            transaction_id=tx_b.id,
+            account_id=user_acct.id,
+            asset_id=asset_usdt.id,
+            legal_entity_id=entity.id,
+            direction="DEBIT",
+            native_amount=Decimal("500.00"),
+            functional_amount_usd=Decimal("500.00"),
+            entry_sequence=1,
+        )
+        j_credit_b = JournalEntryModel(
+            transaction_id=tx_b.id,
+            account_id=op_acct.id,
+            asset_id=asset_usdt.id,
+            legal_entity_id=entity.id,
+            direction="CREDIT",
+            native_amount=Decimal("500.00"),
+            functional_amount_usd=Decimal("500.00"),
+            entry_sequence=2,
+        )
+        session.add_all([j_debit_b, j_credit_b])
+        await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        headers = {"Authorization": f"Bearer {admin_token}"}
+
+        # 1. Approve Withdrawal A (700 USDT). Available is 1,000, so this succeeds.
+        res_a = await client.post(
+            f"/api/v1/admin/withdrawals/{tx_a_id}/approve",
+            json={"notes": "Approved A"},
+            headers=headers,
+        )
+        assert res_a.status_code == 200
+        assert res_a.json()["success"] is True
+
+        # 2. Attempt to approve Withdrawal B (500 USDT).
+        # Account has 1,000 settled but 700 committed to POSTED Withdrawal A (remaining available: 300).
+        # Must fail with 400 Bad Request.
+        res_b = await client.post(
+            f"/api/v1/admin/withdrawals/{tx_b_id}/approve",
+            json={"notes": "Approved B attempt"},
+            headers=headers,
+        )
+        assert res_b.status_code == 400
+        assert "insufficient available balance" in res_b.json()["detail"].lower()
+
+
+# -------------------------------------------------------------------------
+# Test 11: Suspension Invalidates Tokens (Password Reset & Verification)
+# -------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_admin_user_suspension_invalidates_password_reset_and_verification_tokens():
+    """
+    Verifies that suspending a user invalidates any outstanding password reset
+    and email verification tokens in addition to active sessions.
+    """
+    async with AsyncSessionLocal() as session:
+        admin, admin_token = await setup_test_user(session, "token_guard_admin@nexora.test", "Guard Admin", role="admin")
+        investor, _ = await setup_test_user(session, "token_target@nexora.test", "Token Target", role="investor")
+
+        # Create an active password reset token
+        now = datetime.now(timezone.utc)
+        reset_tok = PasswordResetTokenModel(
+            id=create_uuid(),
+            user_id=investor.id,
+            token_hash=hash_token("test_reset_secret_token"),
+            expires_at=now + timedelta(hours=1),
+        )
+        # Create an active email verification token
+        verif_tok = EmailVerificationTokenModel(
+            id=create_uuid(),
+            user_id=investor.id,
+            token_hash=hash_token("test_verif_secret_token"),
+            expires_at=now + timedelta(hours=24),
+        )
+        session.add_all([reset_tok, verif_tok])
+        await session.commit()
+        reset_id = reset_tok.id
+        verif_id = verif_tok.id
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # Suspend investor
+        res_susp = await client.post(
+            f"/api/v1/admin/users/{investor.id}/suspend",
+            json={"reason": "Compromised account detected"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert res_susp.status_code == 200
+
+    # Verify both tokens have been invalidated (used_at is set)
+    async with AsyncSessionLocal() as session:
+        stmt_rst = select(PasswordResetTokenModel).where(PasswordResetTokenModel.id == reset_id)
+        rst_db = (await session.execute(stmt_rst)).scalar_one()
+        assert rst_db.used_at is not None
+
+        stmt_vrf = select(EmailVerificationTokenModel).where(EmailVerificationTokenModel.id == verif_id)
+        vrf_db = (await session.execute(stmt_vrf)).scalar_one()
+        assert vrf_db.used_at is not None

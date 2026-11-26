@@ -101,6 +101,11 @@ export default function AdminAuditLogsPage() {
             <option value="ADMIN_USER_DETAIL_VIEW">ADMIN_USER_DETAIL_VIEW</option>
             <option value="ADMIN_USER_ACCOUNTS_VIEW">ADMIN_USER_ACCOUNTS_VIEW</option>
             <option value="ADMIN_USER_TRANSACTIONS_VIEW">ADMIN_USER_TRANSACTIONS_VIEW</option>
+            <option value="ADMIN_USER_SUSPEND">ADMIN_USER_SUSPEND</option>
+            <option value="ADMIN_USER_REACTIVATE">ADMIN_USER_REACTIVATE</option>
+            <option value="ADMIN_USER_ANONYMIZE_DELETE">ADMIN_USER_ANONYMIZE_DELETE</option>
+            <option value="ADMIN_WITHDRAWAL_APPROVE">ADMIN_WITHDRAWAL_APPROVE</option>
+            <option value="ADMIN_WITHDRAWAL_REJECT">ADMIN_WITHDRAWAL_REJECT</option>
             <option value="ADMIN_UNAUTHORIZED_ACCESS_ATTEMPT">ADMIN_UNAUTHORIZED_ACCESS_ATTEMPT</option>
           </select>
         </div>
@@ -181,8 +186,13 @@ export default function AdminAuditLogsPage() {
                         {log.outcome}
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-zinc-400 max-w-xs truncate font-sans text-xs">
-                      {log.details || '—'}
+                    <td className="py-3 px-4 text-zinc-400 max-w-xs font-sans text-xs">
+                      <div>{log.details || '—'}</div>
+                      {log.reason && (
+                        <div className="text-[11px] text-amber-300/80 font-mono mt-0.5">
+                          Reason: {log.reason}
+                        </div>
+                      )}
                     </td>
                     <td className="py-3 px-4 text-right text-zinc-500 text-[10px]">
                       {log.ipAddress || 'unknown'}

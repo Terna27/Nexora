@@ -20,46 +20,76 @@ import {
   XCircle,
   HelpCircle,
   Banknote,
+  RefreshCw,
+  AlertCircle,
 } from 'lucide-react';
 
 export default function AdminOverviewPage() {
   const [metrics, setMetrics] = useState<AdminOverviewMetrics | null>(null);
   const [recentLogs, setRecentLogs] = useState<AdminAuditLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [overviewRes, logsRes] = await Promise.all([
+        cryptiqApi.getAdminOverview(),
+        cryptiqApi.getAdminAuditLogs({ pageSize: 5 }),
+      ]);
+      setMetrics(overviewRes);
+      setRecentLogs(logsRes?.items || []);
+    } catch (err: any) {
+      console.error('Failed to load admin overview:', err);
+      setError(err?.message || 'Failed to load administrative overview metrics.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    let mounted = true;
-    async function loadData() {
-      try {
-        const [overviewRes, logsRes] = await Promise.all([
-          cryptiqApi.getAdminOverview(),
-          cryptiqApi.getAdminAuditLogs({ pageSize: 5 }),
-        ]);
-        if (mounted) {
-          setMetrics(overviewRes);
-          setRecentLogs(logsRes?.items || []);
-        }
-      } catch (err) {
-        console.error('Failed to load admin overview:', err);
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    }
     loadData();
-    return () => {
-      mounted = false;
-    };
   }, []);
 
   return (
     <div className="space-y-6">
       {/* Title & Banner */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-white">Platform Operations Console</h1>
-        <p className="text-sm text-zinc-400 mt-1">
-          Authoritative operational statistics and financial reporting derived strictly from database records.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-white">Platform Operations Console</h1>
+          <p className="text-sm text-zinc-400 mt-1">
+            Authoritative operational statistics and financial reporting derived strictly from database records.
+          </p>
+        </div>
+        <button
+          onClick={loadData}
+          disabled={loading}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-300 text-xs font-medium transition self-start sm:self-auto"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+          <span>Refresh</span>
+        </button>
       </div>
+
+      {/* Error Banner */}
+      {error && (
+        <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/30 text-xs text-red-300 flex items-start justify-between gap-3">
+          <div className="flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <div className="font-semibold text-red-200">Failed to load platform statistics</div>
+              <div className="mt-0.5 text-red-300/90">{error}</div>
+            </div>
+          </div>
+          <button
+            onClick={loadData}
+            className="px-2.5 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-200 font-semibold transition"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Scope & Financial Integrity Notice Banner */}
       <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200/90 flex items-start gap-3">

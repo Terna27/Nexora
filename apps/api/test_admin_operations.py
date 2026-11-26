@@ -756,14 +756,14 @@ async def test_admin_user_suspension_invalidates_password_reset_and_verification
         reset_tok = PasswordResetTokenModel(
             id=create_uuid(),
             user_id=investor.id,
-            token_hash=hash_token("test_reset_secret_token"),
+            token_hash=hash_token(f"test_reset_secret_{uuid.uuid4().hex}"),
             expires_at=now + timedelta(hours=1),
         )
         # Create an active email verification token
         verif_tok = EmailVerificationTokenModel(
             id=create_uuid(),
             user_id=investor.id,
-            token_hash=hash_token("test_verif_secret_token"),
+            token_hash=hash_token(f"test_verif_secret_{uuid.uuid4().hex}"),
             expires_at=now + timedelta(hours=24),
         )
         session.add_all([reset_tok, verif_tok])

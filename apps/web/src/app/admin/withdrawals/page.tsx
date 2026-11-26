@@ -35,11 +35,12 @@ export default function AdminWithdrawalsPage() {
 
   // Action Modals State
   const [activeAction, setActiveAction] = useState<{
-    type: 'approve' | 'reject';
+    type: 'approve' | 'reject' | 'settle';
     withdrawal: AdminWithdrawalSummary;
   } | null>(null);
   const [actionReason, setActionReason] = useState('');
   const [actionNotes, setActionNotes] = useState('');
+  const [payoutReference, setPayoutReference] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -113,6 +114,32 @@ export default function AdminWithdrawalsPage() {
       await fetchWithdrawals();
     } catch (err: any) {
       setFeedback({ type: 'error', message: err.message || 'Failed to reject withdrawal' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleSettle = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeAction || activeAction.type !== 'settle') return;
+    if (!payoutReference.trim() || payoutReference.trim().length < 4) {
+      setFeedback({ type: 'error', message: 'A substantive payout confirmation reference (min 4 characters) is required.' });
+      return;
+    }
+    setActionLoading(true);
+    setFeedback(null);
+    try {
+      const res = await cryptiqApi.settleWithdrawal(activeAction.withdrawal.id, {
+        payoutReference: payoutReference.trim(),
+        notes: actionNotes.trim() || undefined,
+      });
+      setFeedback({ type: 'success', message: res.message });
+      setActiveAction(null);
+      setPayoutReference('');
+      setActionNotes('');
+      await fetchWithdrawals();
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || 'Failed to settle withdrawal' });
     } finally {
       setActionLoading(false);
     }
@@ -324,6 +351,24 @@ export default function AdminWithdrawalsPage() {
                             Reject
                           </button>
                         </div>
+                      ) : w.status === 'POSTED' ? (
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            onClick={() => {
+                              setActiveAction({ type: 'settle', withdrawal: w });
+                              setPayoutReference('');
+                              setActionNotes('');
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 text-[11px] font-semibold transition flex items-center gap-1"
+                          >
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>Settle Payout</span>
+                          </button>
+                        </div>
+                      ) : w.status === 'SETTLED' ? (
+                        <span className="text-[11px] text-emerald-400/90 font-mono" title={w.payoutReference || 'Settled'}>
+                          {w.payoutReference ? `Ref: ${w.payoutReference.slice(0, 12)}...` : 'Settled'}
+                        </span>
                       ) : w.rejectionReason ? (
                         <span className="text-[11px] text-red-400/80 truncate max-w-[120px] inline-block" title={w.rejectionReason}>
                           {w.rejectionReason}
@@ -459,6 +504,67 @@ export default function AdminWithdrawalsPage() {
                 >
                   {actionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />}
                   <span>Reject & Release Funds</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* SETTLEMENT MODAL */}
+      {activeAction?.type === 'settle' && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0D1117] border border-cyan-500/30 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-2 text-cyan-400 font-semibold text-sm">
+              <CheckCircle2 className="w-5 h-5" />
+              <span>Settle Payout & Reconcile Ledger</span>
+            </div>
+            <div className="p-3 rounded-xl bg-[#090C10] border border-zinc-800 text-xs space-y-1 font-mono">
+              <div>Ref: <span className="text-white">{activeAction.withdrawal.transactionRef}</span></div>
+              <div>Amount: <span className="text-cyan-400 font-bold">{activeAction.withdrawal.amount} {activeAction.withdrawal.asset}</span> (${activeAction.withdrawal.amountUsd} USD)</div>
+              <div>Target: <span className="text-zinc-300">{activeAction.withdrawal.destinationMasked || 'Custodial Target'}</span></div>
+            </div>
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              Authoritatively confirms that the external payout has executed. Transitions status to <code className="font-mono text-cyan-400">SETTLED</code>, permanently deducts the materialized balance from the user's subledger account, and releases the reserved balance hold.
+            </p>
+            <form onSubmit={handleSettle} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-mono uppercase text-zinc-400">External Payout Reference (Required, min 4 chars)</label>
+                <input
+                  type="text"
+                  required
+                  value={payoutReference}
+                  onChange={(e) => setPayoutReference(e.target.value)}
+                  placeholder="e.g. On-chain Tx Hash 0x... or Bank Wire Reference"
+                  className="w-full bg-[#090C10] border border-zinc-800 rounded-xl p-3 text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-cyan-400 font-mono"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-mono uppercase text-zinc-400">Administrative Settlement Notes (Optional)</label>
+                <input
+                  type="text"
+                  value={actionNotes}
+                  onChange={(e) => setActionNotes(e.target.value)}
+                  placeholder="e.g. Broadcast via Fireblocks vault node #3"
+                  className="w-full bg-[#090C10] border border-zinc-800 rounded-xl p-3 text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-cyan-400"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  disabled={actionLoading}
+                  onClick={() => setActiveAction(null)}
+                  className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoading || payoutReference.trim().length < 4}
+                  className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-xs font-semibold text-white transition flex items-center gap-1.5"
+                >
+                  {actionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                  <span>Settle & Deduct Balance</span>
                 </button>
               </div>
             </form>

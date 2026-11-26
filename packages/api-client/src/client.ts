@@ -30,6 +30,12 @@ import {
   AdminWithdrawalsListResponse,
   AdminTransactionItem,
   AdminTransactionsListResponse,
+  AdminWithdrawalSettleRequest,
+  AdminAccountReconcileRequest,
+  UserWithdrawalRequest,
+  UserWithdrawalResponse,
+  AccountReconciliationResponse,
+  TransactionDoubleEntryAudit,
 } from '@cryptiq/types';
 import { ILLUSTRATIVE_ASSET_PRICES, INITIAL_ILLUSTRATIVE_LEDGER } from './mockData';
 
@@ -41,6 +47,14 @@ export class CryptiqApiClient {
     const envUrl = typeof process !== 'undefined' && process.env ? process.env.NEXT_PUBLIC_API_URL : undefined;
     const defaultProdUrl = 'https://nexora-edz1.onrender.com';
     let resolvedUrl = baseUrl || envUrl || defaultProdUrl;
+    if (typeof window !== 'undefined') {
+      try {
+        const override = localStorage.getItem('nexora_api_url');
+        if (override) {
+          resolvedUrl = override;
+        }
+      } catch {}
+    }
     if (resolvedUrl.endsWith('/')) {
       resolvedUrl = resolvedUrl.slice(0, -1);
     }
@@ -55,8 +69,22 @@ export class CryptiqApiClient {
     }
   }
 
+  setBaseUrl(url: string) {
+    this.baseUrl = url.endsWith('/') ? url.slice(0, -1) : url;
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('nexora_api_url', this.baseUrl);
+      } catch {}
+    }
+  }
+
   private getAuthHeaders(extraHeaders: Record<string, string> = {}): Record<string, string> {
     const headers: Record<string, string> = { ...extraHeaders };
+    if (!this.token && typeof window !== 'undefined') {
+      try {
+        this.token = localStorage.getItem('nexora_token');
+      } catch {}
+    }
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
@@ -734,6 +762,73 @@ export class CryptiqApiClient {
     } catch {
       return { items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 };
     }
+  }
+
+  /**
+   * User: Submit a withdrawal request
+   */
+  async requestWithdrawal(data: UserWithdrawalRequest): Promise<UserWithdrawalResponse> {
+    const res = await fetch(`${this.baseUrl}/api/v1/transactions/withdraw`, {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      credentials: 'include',
+      body: JSON.stringify(data),
+    });
+    const result = await res.json();
+    if (!res.ok) {
+      throw new Error(result.detail || 'Withdrawal request failed');
+    }
+    return result;
+  }
+
+  /**
+   * Audit double-entry integrity for a financial transaction
+   */
+  async auditTransactionDoubleEntry(transactionId: string): Promise<TransactionDoubleEntryAudit> {
+    const res = await fetch(`${this.baseUrl}/api/v1/transactions/${transactionId}/audit-double-entry`, {
+      cache: 'no-store',
+      credentials: 'include',
+      headers: this.getAuthHeaders(),
+    });
+    const result = await res.json();
+    if (!res.ok) {
+      throw new Error(result.detail || 'Transaction audit failed');
+    }
+    return result;
+  }
+
+  /**
+   * Admin: Authoritatively settle an approved withdrawal upon confirmed external payout
+   */
+  async settleWithdrawal(withdrawalId: string, data: AdminWithdrawalSettleRequest): Promise<AdminActionResponse> {
+    const res = await fetch(`${this.baseUrl}/api/v1/admin/withdrawals/${withdrawalId}/settle`, {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      credentials: 'include',
+      body: JSON.stringify(data),
+    });
+    const result = await res.json();
+    if (!res.ok) {
+      throw new Error(result.detail || 'Failed to settle withdrawal');
+    }
+    return result;
+  }
+
+  /**
+   * Admin: Reconcile account balance against ledger reconstruction
+   */
+  async reconcileAccount(accountId: string, autoRepair: boolean = false): Promise<AccountReconciliationResponse> {
+    const res = await fetch(`${this.baseUrl}/api/v1/admin/accounts/${accountId}/reconcile`, {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      credentials: 'include',
+      body: JSON.stringify({ autoRepair }),
+    });
+    const result = await res.json();
+    if (!res.ok) {
+      throw new Error(result.detail || 'Account reconciliation failed');
+    }
+    return result;
   }
 }
 

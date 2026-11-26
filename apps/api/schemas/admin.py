@@ -96,6 +96,7 @@ class AdminWithdrawalSummarySchema(BaseModel):
     settledAt: Optional[str] = None
     rejectionReason: Optional[str] = None
     approvalNotes: Optional[str] = None
+    payoutReference: Optional[str] = None
     payoutStatus: str
 
 class AdminWithdrawalsListResponse(BaseModel):
@@ -108,6 +109,14 @@ class AdminWithdrawalsListResponse(BaseModel):
 class AdminWithdrawalActionRequest(BaseModel):
     reason: Optional[str] = None
     notes: Optional[str] = None
+
+class AdminWithdrawalSettleRequest(BaseModel):
+    payoutReference: str = Field(..., min_length=4, max_length=255, description="Authoritative external payout confirmation (tx hash or wire ref)")
+    notes: Optional[str] = Field(None, max_length=500, description="Optional administrative notes")
+
+class AdminAccountReconcileRequest(BaseModel):
+    autoRepair: bool = Field(default=False, description="Whether to resynchronize materialized balance if drift is detected")
+
 
 class AdminTransactionItemSchema(BaseModel):
     id: str

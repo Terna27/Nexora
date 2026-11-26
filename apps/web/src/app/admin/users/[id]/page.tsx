@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { cryptiqApi } from '@cryptiq/api-client';
+import { useAuth } from '@/components/providers/AuthProvider';
 import {
   AdminUserDetail,
   AdminUserAccountsResponse,
@@ -15,6 +16,7 @@ import {
   ArrowLeft,
   Shield,
   ShieldCheck,
+  ShieldAlert,
   CheckCircle2,
   XCircle,
   Database,
@@ -29,12 +31,15 @@ import {
   Trash2,
   Loader2,
   AlertCircle,
+  RefreshCw,
+  Sliders,
 } from 'lucide-react';
 
 export default function AdminUserDetailPage() {
   const params = useParams();
   const router = useRouter();
   const userId = params?.id as string;
+  const { user: currentAdmin } = useAuth();
 
   const [user, setUser] = useState<AdminUserDetail | null>(null);
   const [accounts, setAccounts] = useState<AdminUserAccountsResponse | null>(null);
@@ -104,7 +109,7 @@ export default function AdminUserDetailPage() {
   const handleReactivate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!actionReason.trim() || actionReason.trim().length < 3) {
-      setFeedback({ type: 'error', message: 'A reason for reactivation is required.' });
+      setFeedback({ type: 'error', message: 'A substantive reason for reactivation (at least 3 characters) is required.' });
       return;
     }
     setActionLoading(true);
@@ -129,7 +134,7 @@ export default function AdminUserDetailPage() {
       return;
     }
     if (!actionReason.trim() || actionReason.trim().length < 5) {
-      setFeedback({ type: 'error', message: 'A substantive reason (at least 5 characters) is required.' });
+      setFeedback({ type: 'error', message: 'A substantive removal reason (at least 5 characters) is required.' });
       return;
     }
     setActionLoading(true);
@@ -142,7 +147,7 @@ export default function AdminUserDetailPage() {
       setConfirmEmailInput('');
       await loadData();
     } catch (err: any) {
-      setFeedback({ type: 'error', message: err.message || 'Failed to safely remove account.' });
+      setFeedback({ type: 'error', message: err.message || 'Failed to safely remove and anonymize account.' });
     } finally {
       setActionLoading(false);
     }
@@ -176,12 +181,17 @@ export default function AdminUserDetailPage() {
     );
   }
 
+  const isCurrentAdmin = currentAdmin?.id === user.id;
+  const isAnonymized = user.email.startsWith('anonymized_');
+  const hasPositiveBalance = accounts?.totalBalanceUsd && parseFloat(accounts.totalBalanceUsd) > 0.01;
+  const pendingTxCount = transactions.filter((t) => t.status === 'PENDING').length;
+
   return (
     <div className="space-y-6">
       {/* Feedback Banner */}
       {feedback && (
         <div
-          className={`p-4 rounded-2xl border text-xs flex items-start gap-3 ${
+          className={`p-4 rounded-2xl border text-xs flex items-start gap-3 shadow-md ${
             feedback.type === 'success'
               ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
               : 'bg-red-500/10 border-red-500/30 text-red-300'
@@ -195,7 +205,7 @@ export default function AdminUserDetailPage() {
           <div className="flex-1 font-medium">{feedback.message}</div>
           <button
             onClick={() => setFeedback(null)}
-            className="text-zinc-400 hover:text-white font-mono text-xs"
+            className="text-zinc-400 hover:text-white font-mono text-xs ml-2"
           >
             ×
           </button>
@@ -211,7 +221,16 @@ export default function AdminUserDetailPage() {
           <ArrowLeft className="w-3.5 h-3.5" />
           <span>Back to User Directory</span>
         </Link>
-        <span className="text-[11px] font-mono text-zinc-400">UUID: {user.id}</span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={loadData}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition"
+          >
+            <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
+          <span className="text-[11px] font-mono text-zinc-500">UUID: {user.id}</span>
+        </div>
       </div>
 
       {/* Profile Header Card */}
@@ -228,19 +247,31 @@ export default function AdminUserDetailPage() {
                   className={`px-2 py-0.5 rounded text-[10px] font-mono font-semibold ${
                     user.role === 'admin'
                       ? 'bg-amber-500/15 border border-amber-500/30 text-amber-300'
+                      : user.role === 'auditor'
+                      ? 'bg-cyan-500/15 border border-cyan-500/30 text-cyan-300'
                       : 'bg-zinc-800 border border-zinc-700 text-zinc-300'
                   }`}
                 >
                   {user.role}
                 </span>
+                {isCurrentAdmin && (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    Your Account
+                  </span>
+                )}
               </div>
               <div className="text-xs font-mono text-zinc-400 mt-0.5">{user.email}</div>
             </div>
           </div>
 
-          {/* Status Badges & Admin Operations Actions */}
+          {/* Quick Badges */}
           <div className="flex flex-wrap items-center gap-2.5">
-            {user.isActive ? (
+            {isAnonymized ? (
+              <span className="px-2.5 py-1 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-400 text-xs font-medium inline-flex items-center gap-1">
+                <XCircle className="w-3.5 h-3.5 text-zinc-500" />
+                <span>Anonymized Account</span>
+              </span>
+            ) : user.isActive ? (
               <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium inline-flex items-center gap-1">
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 <span>Active Account</span>
@@ -262,43 +293,6 @@ export default function AdminUserDetailPage() {
                 Unverified
               </span>
             )}
-
-            {/* Action Buttons */}
-            {user.isActive ? (
-              <button
-                onClick={() => {
-                  setActionModal('suspend');
-                  setActionReason('');
-                }}
-                className="px-3 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-xs font-semibold transition inline-flex items-center gap-1.5"
-              >
-                <Ban className="w-3.5 h-3.5" />
-                <span>Suspend Account</span>
-              </button>
-            ) : (
-              <button
-                onClick={() => {
-                  setActionModal('reactivate');
-                  setActionReason('');
-                }}
-                className="px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-semibold transition inline-flex items-center gap-1.5"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Reactivate Account</span>
-              </button>
-            )}
-
-            <button
-              onClick={() => {
-                setActionModal('delete');
-                setActionReason('');
-                setConfirmEmailInput('');
-              }}
-              className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-red-950/40 border border-zinc-700 hover:border-red-500/40 text-zinc-300 hover:text-red-400 text-xs font-semibold transition inline-flex items-center gap-1.5"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Safely Remove</span>
-            </button>
           </div>
         </div>
 
@@ -334,6 +328,169 @@ export default function AdminUserDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* ========================================================================= */}
+      {/* PROMINENT ACCOUNT MANAGEMENT SECTION (ADMIN OPERATIONS ONLY)               */}
+      {/* ========================================================================= */}
+      <section className="bg-[#0D1117] border-2 border-amber-500/30 rounded-2xl p-6 space-y-6 shadow-xl relative overflow-hidden">
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 via-red-500 to-amber-500" />
+        
+        {/* Section Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-zinc-800/80 pb-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <ShieldAlert className="w-5 h-5 text-amber-400" />
+              <h2 className="text-lg font-bold text-white tracking-tight">Account Management</h2>
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono uppercase bg-amber-500/15 border border-amber-500/30 text-amber-300 font-semibold">
+                Staff Administrator Control
+              </span>
+            </div>
+            <p className="text-xs text-zinc-400">
+              Authoritative identity lifecycle controls, session invalidation, and regulatory account anonymization.
+            </p>
+          </div>
+
+          {/* Current Account Status Indicator */}
+          <div className="flex items-center gap-2 bg-[#090C10] border border-zinc-800 px-3.5 py-2 rounded-xl text-xs">
+            <span className="text-zinc-400 font-mono text-[11px] uppercase">Account Status:</span>
+            {isAnonymized ? (
+              <span className="font-semibold text-zinc-400 inline-flex items-center gap-1.5">
+                <XCircle className="w-3.5 h-3.5 text-zinc-500" />
+                <span>Anonymized / Inactive</span>
+              </span>
+            ) : user.isActive ? (
+              <span className="font-semibold text-emerald-400 inline-flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Active (Full Privileges)</span>
+              </span>
+            ) : (
+              <span className="font-semibold text-red-400 inline-flex items-center gap-1.5">
+                <XCircle className="w-3.5 h-3.5 text-red-400" />
+                <span>Suspended (Sessions Revoked)</span>
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Self-Account Safeguard Notice */}
+        {isCurrentAdmin && (
+          <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 flex items-start gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+            <div className="leading-relaxed">
+              <strong>Self-Protection Safeguard:</strong> You are viewing your own administrative account. To prevent platform lockout, administrators cannot suspend or delete their own accounts.
+            </div>
+          </div>
+        )}
+
+        {/* Anonymized Notice */}
+        {isAnonymized && (
+          <div className="p-3.5 rounded-xl bg-zinc-800/80 border border-zinc-700 text-xs text-zinc-300 flex items-start gap-2.5">
+            <Info className="w-4 h-4 text-zinc-400 flex-shrink-0 mt-0.5" />
+            <div className="leading-relaxed">
+              <strong>Account Anonymized:</strong> Personal identifiable information has been permanently scrubbed. Financial records and double-entry ledger journals remain preserved for audit compliance.
+            </div>
+          </div>
+        )}
+
+        {/* Action Controls Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Action 1: Suspension / Reactivation */}
+          <div className="p-4 rounded-xl bg-[#090C10] border border-zinc-800 flex flex-col justify-between space-y-4">
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                <Ban className="w-4 h-4 text-amber-400" />
+                <span>Authentication & Session Access</span>
+              </div>
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                {user.isActive
+                  ? 'Suspending this account immediately revokes all active JWT sessions, invalidates pending password reset and email verification tokens, and prevents subsequent sign-ins.'
+                  : 'Reactivating this account restores the user’s ability to authenticate, receive notifications, and access their subledger assets.'}
+              </p>
+            </div>
+
+            <div>
+              {user.isActive ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActionModal('suspend');
+                    setActionReason('');
+                  }}
+                  disabled={isCurrentAdmin || actionLoading || isAnonymized}
+                  title={isCurrentAdmin ? 'Administrators cannot suspend their own account' : 'Suspend account'}
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-red-500/15 hover:bg-red-500/25 disabled:opacity-40 disabled:hover:bg-red-500/15 border border-red-500/40 text-red-300 text-xs font-semibold transition inline-flex items-center justify-center gap-2"
+                >
+                  <Ban className="w-4 h-4 text-red-400" />
+                  <span>Suspend Account</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActionModal('reactivate');
+                    setActionReason('');
+                  }}
+                  disabled={actionLoading || isAnonymized}
+                  title="Reactivate account"
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 disabled:opacity-40 disabled:hover:bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs font-semibold transition inline-flex items-center justify-center gap-2"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span>Reactivate Account</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Action 2: Anonymization / Deletion */}
+          <div className="p-4 rounded-xl bg-[#090C10] border border-zinc-800 flex flex-col justify-between space-y-4">
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                <Trash2 className="w-4 h-4 text-red-400" />
+                <span>Account Anonymization & Deletion</span>
+              </div>
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                Permanently deactivates the account and scrubs PII (full name, email, credentials) while preserving financial ledger entries and audit records to maintain database referential integrity.
+              </p>
+            </div>
+
+            <div>
+              <button
+                type="button"
+                onClick={() => {
+                  setActionModal('delete');
+                  setActionReason('');
+                  setConfirmEmailInput('');
+                }}
+                disabled={isCurrentAdmin || isAnonymized || actionLoading}
+                title={
+                  isCurrentAdmin
+                    ? 'Administrators cannot delete their own account'
+                    : isAnonymized
+                    ? 'Account has already been anonymized'
+                    : 'Permanently anonymize and delete user account'
+                }
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-red-950/40 disabled:opacity-40 disabled:hover:bg-zinc-800 border border-zinc-700 hover:border-red-500/40 text-zinc-300 hover:text-red-300 text-xs font-semibold transition inline-flex items-center justify-center gap-2"
+              >
+                <Trash2 className="w-4 h-4 text-red-400" />
+                <span>Anonymize/Delete Account</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Safeguards Summary Footer */}
+        <div className="pt-3 border-t border-zinc-800/80 text-[11px] text-zinc-400 space-y-1 leading-relaxed">
+          <div className="font-semibold text-zinc-300 flex items-center gap-1.5">
+            <Lock className="w-3.5 h-3.5 text-amber-400" />
+            <span>Platform Safeguards & Regulatory Rules</span>
+          </div>
+          <ul className="list-disc list-inside space-y-0.5 text-zinc-400 pl-1">
+            <li><strong>Balance Check:</strong> Deletion is rejected if user possesses positive settled balances (current balance: ${accounts?.totalBalanceUsd || '0.00'} USD).</li>
+            <li><strong>Pending Transactions:</strong> Deletion is rejected if unresolved pending transactions exist (pending count: {pendingTxCount}).</li>
+            <li><strong>Audit Logging:</strong> All administrative lifecycle changes are permanently logged to the PostgreSQL audit trail with admin attribution and reason.</li>
+          </ul>
+        </div>
+      </section>
 
       {/* Tabs */}
       <div className="flex items-center gap-2 border-b border-zinc-800">
@@ -555,10 +712,15 @@ export default function AdminUserDetailPage() {
           <div className="bg-[#0D1117] border border-red-500/30 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
             <div className="flex items-center gap-2 text-red-400 font-semibold text-sm">
               <Ban className="w-5 h-5" />
-              <span>Suspend User Account</span>
+              <span>Confirm Account Suspension</span>
+            </div>
+            <div className="p-3 rounded-xl bg-[#090C10] border border-zinc-800 text-xs space-y-1">
+              <div>Target User: <span className="font-semibold text-white">{user.fullName}</span></div>
+              <div>Email: <span className="font-mono text-amber-400">{user.email}</span></div>
+              <div>UUID: <span className="font-mono text-zinc-500">{user.id}</span></div>
             </div>
             <p className="text-xs text-zinc-400 leading-relaxed">
-              Suspending <span className="text-white font-semibold">{user.email}</span> will immediately revoke all active sessions and block further login attempts.
+              Suspending this account will immediately revoke all active JWT sessions, invalidate pending password reset and email verification tokens, and reject subsequent authentication attempts.
             </p>
             <form onSubmit={handleSuspend} className="space-y-4">
               <div className="space-y-1.5">
@@ -583,8 +745,8 @@ export default function AdminUserDetailPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={actionLoading}
-                  className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-xs font-semibold text-white transition flex items-center gap-1.5"
+                  disabled={actionLoading || actionReason.trim().length < 3}
+                  className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold text-white transition flex items-center gap-1.5"
                 >
                   {actionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />}
                   <span>Confirm Suspension</span>
@@ -601,10 +763,15 @@ export default function AdminUserDetailPage() {
           <div className="bg-[#0D1117] border border-emerald-500/30 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
             <div className="flex items-center gap-2 text-emerald-400 font-semibold text-sm">
               <CheckCircle2 className="w-5 h-5" />
-              <span>Reactivate User Account</span>
+              <span>Confirm Account Reactivation</span>
+            </div>
+            <div className="p-3 rounded-xl bg-[#090C10] border border-zinc-800 text-xs space-y-1">
+              <div>Target User: <span className="font-semibold text-white">{user.fullName}</span></div>
+              <div>Email: <span className="font-mono text-emerald-400">{user.email}</span></div>
+              <div>UUID: <span className="font-mono text-zinc-500">{user.id}</span></div>
             </div>
             <p className="text-xs text-zinc-400 leading-relaxed">
-              Reactivating <span className="text-white font-semibold">{user.email}</span> will restore platform access and allow the user to authenticate normally.
+              Reactivating this account will restore platform access and allow the user to authenticate and manage their custodial assets normally.
             </p>
             <form onSubmit={handleReactivate} className="space-y-4">
               <div className="space-y-1.5">
@@ -629,8 +796,8 @@ export default function AdminUserDetailPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={actionLoading}
-                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white transition flex items-center gap-1.5"
+                  disabled={actionLoading || actionReason.trim().length < 3}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold text-white transition flex items-center gap-1.5"
                 >
                   {actionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
                   <span>Confirm Reactivation</span>
@@ -649,10 +816,23 @@ export default function AdminUserDetailPage() {
               <AlertTriangle className="w-5 h-5 text-red-400" />
               <span>Controlled Account Removal & Anonymization</span>
             </div>
-            <p className="text-xs text-zinc-300 leading-relaxed">
-              This process permanently deactivates the account, revokes all credentials, and anonymizes personal data.
-              Double-entry financial records and immutable audit logs are preserved for regulatory compliance.
-            </p>
+            <div className="p-3 rounded-xl bg-[#090C10] border border-zinc-800 text-xs space-y-1">
+              <div>Target User: <span className="font-semibold text-white">{user.fullName}</span></div>
+              <div>Target Email: <span className="font-mono text-amber-400">{user.email}</span></div>
+              <div>UUID: <span className="font-mono text-zinc-500">{user.id}</span></div>
+            </div>
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 space-y-1.5 leading-relaxed">
+              <div className="font-semibold flex items-center gap-1.5 text-amber-400">
+                <ShieldAlert className="w-4 h-4 flex-shrink-0" />
+                <span>Safeguards & Regulatory Notice</span>
+              </div>
+              <p>
+                This operation irreversibly deactivates the account and anonymizes personal data. Double-entry financial subledgers and immutable audit logs are preserved for regulatory compliance.
+              </p>
+              <p className="text-[11px] text-amber-300/80">
+                <strong>Why this action may be blocked:</strong> The backend will strictly reject deletion if this account holds positive settled balances (current: ${accounts?.totalBalanceUsd || '0.00'} USD) or pending unresolved transactions (current: {pendingTxCount}).
+              </p>
+            </div>
             <form onSubmit={handleAnonymizeDelete} className="space-y-4">
               <div className="space-y-1.5">
                 <label className="text-[11px] font-mono uppercase text-zinc-400">
@@ -689,11 +869,15 @@ export default function AdminUserDetailPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={actionLoading || confirmEmailInput.trim().toLowerCase() !== user.email.trim().toLowerCase()}
+                  disabled={
+                    actionLoading ||
+                    confirmEmailInput.trim().toLowerCase() !== user.email.trim().toLowerCase() ||
+                    actionReason.trim().length < 5
+                  }
                   className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold text-white transition flex items-center gap-1.5"
                 >
                   {actionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                  <span>Permanently Anonymize</span>
+                  <span>Permanently Anonymize & Delete</span>
                 </button>
               </div>
             </form>

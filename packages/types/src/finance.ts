@@ -111,3 +111,50 @@ export interface UserTransactionsListResponse {
   pageSize: number;
   pages: number;
 }
+
+export interface UserWithdrawalRequest {
+  asset: string;
+  amount: number;
+  destination: string;
+  idempotencyKey: string;
+  notes?: string;
+}
+
+export interface UserWithdrawalResponse {
+  id: string;
+  transactionRef: string;
+  status: string;
+  asset: string;
+  amount: string;
+  destinationMasked: string;
+  reservedBalance: string;
+  remainingAvailableBalance: string;
+  message: string;
+  createdAt: string;
+}
+
+export interface AccountReconciliationResponse {
+  accountId: string;
+  accountNumber: string;
+  asset: string;
+  materializedBalance: string;
+  reconstructedBalance: string;
+  variance: string;
+  isConsistent: boolean;
+  repaired: boolean;
+  postedJournalEntriesCount: number;
+}
+
+export interface TransactionDoubleEntryAudit {
+  transactionId: string;
+  transactionRef: string;
+  status: string;
+  entryCount: number;
+  debitEntries: number;
+  creditEntries: number;
+  totalUsdDebits: string;
+  totalUsdCredits: string;
+  isUsdBalanced: boolean;
+  isNativeBalanced: boolean;
+}
+

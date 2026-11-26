@@ -37,6 +37,8 @@ from schemas.admin import (
     AdminWithdrawalSummarySchema,
     AdminWithdrawalsListResponse,
     AdminWithdrawalActionRequest,
+    AdminWithdrawalSettleRequest,
+    AdminAccountReconcileRequest,
     AdminTransactionItemSchema,
     AdminTransactionsListResponse,
     AdminAuditLogSchema,
@@ -46,7 +48,9 @@ from schemas.finance import (
     UserAccountBalanceSchema,
     UserTransactionsListResponse,
     UserTransactionItemSchema,
+    AccountReconciliationResponseSchema,
 )
+from services.ledger import LedgerService
 
 router = APIRouter(prefix="/admin", tags=["Administrative Portal"])
 
@@ -408,35 +412,16 @@ async def get_admin_user_accounts(
 
     account_schemas: List[UserAccountBalanceSchema] = []
     total_usd = Decimal("0.00")
+    ledger_service = LedgerService(db)
 
-    for account, asset, balance in rows:
-        settled_native = balance.current_balance if balance else Decimal("0")
-        functional_usd = balance.functional_usd_balance if balance else Decimal("0.00")
+    for account, asset, _ in rows:
+        acct_bal = await ledger_service.get_account_balances(account.id)
+        settled_native = acct_bal["settled"]
+        reserved_native = acct_bal["reserved"]
+        pending_native = acct_bal["pending"]
+        available_native = acct_bal["available"]
+        functional_usd = acct_bal["functional_usd"]
         total_usd += functional_usd
-
-        stmt_pending = (
-            select(func.coalesce(func.sum(JournalEntryModel.native_amount), Decimal("0")))
-            .join(FinancialTransactionModel, FinancialTransactionModel.id == JournalEntryModel.transaction_id)
-            .where(
-                JournalEntryModel.account_id == account.id,
-                FinancialTransactionModel.status == "PENDING",
-            )
-        )
-        pending_native = await db.scalar(stmt_pending) or Decimal("0")
-
-        # Reserved/held debits: pending or approved (POSTED) withdrawals awaiting payout
-        stmt_reserved = (
-            select(func.coalesce(func.sum(JournalEntryModel.native_amount), Decimal("0")))
-            .join(FinancialTransactionModel, FinancialTransactionModel.id == JournalEntryModel.transaction_id)
-            .where(
-                JournalEntryModel.account_id == account.id,
-                JournalEntryModel.direction == "DEBIT",
-                FinancialTransactionModel.status.in_(["PENDING", "POSTED"]),
-                FinancialTransactionModel.is_fully_reversed.is_(False),
-            )
-        )
-        reserved_native = await db.scalar(stmt_reserved) or Decimal("0")
-        available_native = max(Decimal("0"), settled_native - reserved_native)
 
         account_schemas.append(
             UserAccountBalanceSchema(
@@ -1021,6 +1006,7 @@ async def list_admin_withdrawals(
                 settledAt=tx.settled_at.isoformat() if tx.settled_at else None,
                 rejectionReason=meta.get("rejection_reason"),
                 approvalNotes=meta.get("approval_notes"),
+                payoutReference=meta.get("payout_reference"),
                 payoutStatus=payout_status,
             )
         )
@@ -1125,6 +1111,7 @@ async def get_admin_withdrawal_detail(
         settledAt=tx.settled_at.isoformat() if tx.settled_at else None,
         rejectionReason=meta.get("rejection_reason"),
         approvalNotes=meta.get("approval_notes"),
+        payoutReference=meta.get("payout_reference"),
         payoutStatus=payout_status,
     )
 
@@ -1146,88 +1133,15 @@ async def approve_withdrawal_request(
     - Logs durable audit record with administrator attribution.
     - Honestly reports that automated payout execution is not integrated, requiring manual reconciliation.
     """
-    # 1. Lock transaction row for mutual exclusion
-    stmt = (
-        select(FinancialTransactionModel)
-        .where(
-            FinancialTransactionModel.id == withdrawal_id,
-            FinancialTransactionModel.transaction_type == "WITHDRAWAL",
-        )
-        .with_for_update()
+    ledger_service = LedgerService(db)
+    tx = await ledger_service.approve_withdrawal(
+        withdrawal_id=withdrawal_id,
+        admin_user_id=admin_user.id,
+        admin_email=admin_user.email,
+        notes=req.notes,
     )
-    res = await db.execute(stmt)
-    tx = res.scalar_one_or_none()
-    if not tx:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Withdrawal request with ID '{withdrawal_id}' was not found."
-        )
-
-    # 2. Strict status check: only PENDING withdrawals can be approved
-    if tx.status != "PENDING":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Cannot approve withdrawal in '{tx.status}' state. Only PENDING withdrawals can be approved."
-        )
-
-    # 3. Verify balance sufficiency taking into account already committed/approved (POSTED) withdrawals
-    entry_stmt = (
-        select(JournalEntryModel, AccountBalanceModel, AccountModel)
-        .join(AccountModel, AccountModel.id == JournalEntryModel.account_id)
-        .outerjoin(AccountBalanceModel, AccountBalanceModel.account_id == AccountModel.id)
-        .where(
-            JournalEntryModel.transaction_id == tx.id,
-            JournalEntryModel.direction == "DEBIT",
-        )
-    )
-    entry_res = await db.execute(entry_stmt)
-    entry_row = entry_res.first()
-    if entry_row:
-        entry, balance, acct = entry_row
-        settled_balance = balance.current_balance if balance else Decimal("0")
-
-        # Sum other POSTED withdrawals on this account that are awaiting payout
-        stmt_committed = (
-            select(func.coalesce(func.sum(JournalEntryModel.native_amount), Decimal("0")))
-            .join(FinancialTransactionModel, FinancialTransactionModel.id == JournalEntryModel.transaction_id)
-            .where(
-                JournalEntryModel.account_id == acct.id,
-                JournalEntryModel.direction == "DEBIT",
-                FinancialTransactionModel.id != tx.id,
-                FinancialTransactionModel.status == "POSTED",
-                FinancialTransactionModel.transaction_type == "WITHDRAWAL",
-                FinancialTransactionModel.is_fully_reversed.is_(False),
-            )
-        )
-        committed_posted = await db.scalar(stmt_committed) or Decimal("0")
-        available_balance = settled_balance - committed_posted
-
-        if available_balance < entry.native_amount:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Insufficient available balance for approval. Account has {settled_balance} settled with {committed_posted} committed to other approved withdrawals (available: {available_balance}), required: {entry.native_amount}",
-            )
-
-    # 4. Transition to POSTED (Approved)
-    now = datetime.now(timezone.utc)
-    tx.status = "POSTED"
-    tx.posted_at = now
 
     approval_notes = (req.notes or "Administrative approval granted").strip()
-    meta: Dict[str, Any] = {}
-    if tx.metadata_json:
-        try:
-            meta = json.loads(tx.metadata_json) if isinstance(tx.metadata_json, str) else {}
-        except Exception:
-            meta = {}
-
-    meta["approved_by_admin_id"] = admin_user.id
-    meta["approved_by_admin_email"] = admin_user.email
-    meta["approved_at"] = now.isoformat()
-    meta["approval_notes"] = approval_notes
-    tx.metadata_json = json.dumps(meta)
-
-    # 5. Durable audit log
     ip = request.client.host if request.client else "unknown"
     await record_admin_audit_event(
         db=db,
@@ -1266,54 +1180,15 @@ async def reject_withdrawal_request(
     - Transitions status to VOIDED, releasing reserved/pending balance in subledger.
     - Logs durable audit record.
     """
-    if not req.reason or len(req.reason.strip()) < 5:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A substantive rejection reason (at least 5 characters) is required."
-        )
-
-    stmt = (
-        select(FinancialTransactionModel)
-        .where(
-            FinancialTransactionModel.id == withdrawal_id,
-            FinancialTransactionModel.transaction_type == "WITHDRAWAL",
-        )
-        .with_for_update()
+    rejection_reason = (req.reason or "").strip()
+    ledger_service = LedgerService(db)
+    tx = await ledger_service.reject_withdrawal(
+        withdrawal_id=withdrawal_id,
+        admin_user_id=admin_user.id,
+        admin_email=admin_user.email,
+        reason=rejection_reason,
     )
-    res = await db.execute(stmt)
-    tx = res.scalar_one_or_none()
-    if not tx:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Withdrawal request with ID '{withdrawal_id}' was not found."
-        )
 
-    if tx.status != "PENDING":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Cannot reject withdrawal in '{tx.status}' state. Only PENDING withdrawals can be rejected."
-        )
-
-    now = datetime.now(timezone.utc)
-    rejection_reason = req.reason.strip()
-
-    # Transition to VOIDED (releases pending hold)
-    tx.status = "VOIDED"
-
-    meta: Dict[str, Any] = {}
-    if tx.metadata_json:
-        try:
-            meta = json.loads(tx.metadata_json) if isinstance(tx.metadata_json, str) else {}
-        except Exception:
-            meta = {}
-
-    meta["rejected_by_admin_id"] = admin_user.id
-    meta["rejected_by_admin_email"] = admin_user.email
-    meta["rejected_at"] = now.isoformat()
-    meta["rejection_reason"] = rejection_reason
-    tx.metadata_json = json.dumps(meta)
-
-    # Durable audit log
     ip = request.client.host if request.client else "unknown"
     await record_admin_audit_event(
         db=db,
@@ -1334,6 +1209,100 @@ async def reject_withdrawal_request(
         message=f"Withdrawal {tx.transaction_ref} rejected and voided. Reserved funds released.",
         targetId=tx.id,
     )
+
+
+@router.post("/withdrawals/{withdrawal_id}/settle", response_model=AdminActionResponse)
+async def settle_withdrawal_request(
+    withdrawal_id: str,
+    req: AdminWithdrawalSettleRequest,
+    request: Request,
+    admin_user: UserModel = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> AdminActionResponse:
+    """
+    Authoritatively settles an approved (POSTED) withdrawal upon confirmed external payout:
+    - Row-level lock on the transaction.
+    - Validates transaction is in POSTED status.
+    - Permanently deducts materialized balance from the user's AccountBalanceModel.
+    - Releases the reserved balance hold.
+    - Transitions transaction status to SETTLED.
+    - Records payout reference, admin attribution, and audit event.
+    """
+    ledger_service = LedgerService(db)
+    tx = await ledger_service.settle_withdrawal(
+        withdrawal_id=withdrawal_id,
+        payout_reference=req.payoutReference,
+        admin_user_id=admin_user.id,
+        admin_email=admin_user.email,
+        notes=req.notes,
+    )
+
+    ip = request.client.host if request.client else "unknown"
+    await record_admin_audit_event(
+        db=db,
+        admin_user_id=admin_user.id,
+        action="ADMIN_WITHDRAWAL_SETTLE",
+        target_entity="financial_transaction",
+        target_id=tx.id,
+        ip_address=ip,
+        outcome="SUCCESS",
+        reason=req.payoutReference,
+        details=f"Settled withdrawal {tx.transaction_ref} with payout reference '{req.payoutReference}'",
+    )
+
+    await db.commit()
+
+    return AdminActionResponse(
+        success=True,
+        message=f"Withdrawal {tx.transaction_ref} settled. Subledger balances successfully deducted and reconciled.",
+        targetId=tx.id,
+    )
+
+
+@router.post("/accounts/{account_id}/reconcile", response_model=AccountReconciliationResponseSchema)
+async def reconcile_account(
+    account_id: str,
+    req: AdminAccountReconcileRequest,
+    request: Request,
+    admin_user: UserModel = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> AccountReconciliationResponseSchema:
+    """
+    Audits materialized account balance against full journal-entry ledger reconstruction:
+    - Detects any drift between AccountBalanceModel and reconstructed entries.
+    - If autoRepair is True, safely resynchronizes materialized balance to match ledger.
+    - Durable audit logging.
+    """
+    ledger_service = LedgerService(db)
+    result = await ledger_service.reconcile_account_balance(account_id, auto_repair=req.autoRepair)
+
+    ip = request.client.host if request.client else "unknown"
+    await record_admin_audit_event(
+        db=db,
+        admin_user_id=admin_user.id,
+        action="ADMIN_ACCOUNT_RECONCILE",
+        target_entity="account",
+        target_id=account_id,
+        ip_address=ip,
+        outcome="SUCCESS",
+        reason=f"autoRepair={req.autoRepair}",
+        details=f"Reconciled account {result['accountNumber']}. Consistent: {result['isConsistent']}, Repaired: {result['repaired']}",
+    )
+
+    await db.commit()
+
+    return AccountReconciliationResponseSchema(
+        accountId=result["accountId"],
+        accountNumber=result["accountNumber"],
+        asset=result["asset"],
+        materializedBalance=result["materializedBalance"],
+        reconstructedBalance=result["reconstructedBalance"],
+        variance=result["variance"],
+        isConsistent=result["isConsistent"],
+        repaired=result["repaired"],
+        postedJournalEntriesCount=result["postedJournalEntriesCount"],
+    )
+
 
 
 # =========================================================================

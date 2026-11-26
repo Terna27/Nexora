@@ -104,6 +104,7 @@ export interface AdminWithdrawalSummary {
   settledAt?: string | null;
   rejectionReason?: string | null;
   approvalNotes?: string | null;
+  payoutReference?: string | null;
   payoutStatus: string;
 }
 
@@ -118,6 +119,15 @@ export interface AdminWithdrawalsListResponse {
 export interface AdminWithdrawalActionRequest {
   reason?: string;
   notes?: string;
+}
+
+export interface AdminWithdrawalSettleRequest {
+  payoutReference: string;
+  notes?: string;
+}
+
+export interface AdminAccountReconcileRequest {
+  autoRepair?: boolean;
 }
 
 export interface AdminTransactionItem {

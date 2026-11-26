@@ -15,6 +15,7 @@ from models.financial import (
     JournalEntryModel,
     InvestorUnitActivityModel,
 )
+from services.ledger import LedgerService
 from schemas.finance import (
     UserPortfolioResponse,
     UserAccountBalanceSchema,
@@ -70,24 +71,16 @@ async def get_my_portfolio(
     # User has provisioned accounts
     account_schemas: List[UserAccountBalanceSchema] = []
     total_balance_usd = Decimal("0.00")
+    ledger_service = LedgerService(db)
 
-    for account, asset, balance in rows:
-        settled_native = balance.current_balance if balance else Decimal("0")
-        functional_usd = balance.functional_usd_balance if balance else Decimal("0.00")
+    for account, asset, _ in rows:
+        acct_bal = await ledger_service.get_account_balances(account.id)
+        settled_native = acct_bal["settled"]
+        reserved_native = acct_bal["reserved"]
+        pending_native = acct_bal["pending"]
+        available_native = acct_bal["available"]
+        functional_usd = acct_bal["functional_usd"]
         total_balance_usd += functional_usd
-
-        # Calculate pending incoming/outgoing from PENDING transactions affecting this account
-        stmt_pending = (
-            select(func.coalesce(func.sum(JournalEntryModel.native_amount), Decimal("0")))
-            .join(FinancialTransactionModel, FinancialTransactionModel.id == JournalEntryModel.transaction_id)
-            .where(
-                JournalEntryModel.account_id == account.id,
-                FinancialTransactionModel.status == "PENDING",
-            )
-        )
-        pending_native = await db.scalar(stmt_pending) or Decimal("0")
-        reserved_native = Decimal("0")
-        available_native = settled_native - reserved_native
 
         account_schemas.append(
             UserAccountBalanceSchema(

@@ -107,3 +107,48 @@ class UserTransactionsListResponse(BaseModel):
     pageSize: int
     pages: int
 
+# ----------------- WITHDRAWAL & RECONCILIATION SCHEMAS -----------------
+
+class UserWithdrawalRequestSchema(BaseModel):
+    asset: str = Field(..., description="Asset symbol (e.g. BTC, ETH, USDT)")
+    amount: float = Field(..., gt=0.0, description="Strictly positive withdrawal amount")
+    destination: str = Field(..., min_length=4, max_length=255, description="Destination crypto address or custodial withdrawal target")
+    idempotencyKey: str = Field(..., min_length=8, max_length=128, description="Unique client-supplied idempotency key")
+    notes: Optional[str] = Field(None, max_length=500, description="Optional user notes")
+
+class UserWithdrawalResponseSchema(BaseModel):
+    id: str
+    transactionRef: str
+    status: str
+    asset: str
+    amount: str
+    destinationMasked: str
+    reservedBalance: str
+    remainingAvailableBalance: str
+    message: str
+    createdAt: str
+
+class AccountReconciliationResponseSchema(BaseModel):
+    accountId: str
+    accountNumber: str
+    asset: str
+    materializedBalance: str
+    reconstructedBalance: str
+    variance: str
+    isConsistent: bool
+    repaired: bool
+    postedJournalEntriesCount: int
+
+class TransactionDoubleEntryAuditSchema(BaseModel):
+    transactionId: str
+    transactionRef: str
+    status: str
+    entryCount: int
+    debitEntries: int
+    creditEntries: int
+    totalUsdDebits: str
+    totalUsdCredits: str
+    isUsdBalanced: bool
+    isNativeBalanced: bool
+
+

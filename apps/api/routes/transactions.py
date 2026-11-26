@@ -1,4 +1,6 @@
 from typing import Optional, List
+from decimal import Decimal
+import json
 import math
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,9 +15,13 @@ from models.financial import (
     AccountModel,
     AssetModel,
 )
+from services.ledger import LedgerService
 from schemas.finance import (
     UserTransactionsListResponse,
     UserTransactionItemSchema,
+    UserWithdrawalRequestSchema,
+    UserWithdrawalResponseSchema,
+    TransactionDoubleEntryAuditSchema,
 )
 
 router = APIRouter(tags=["Transactions"])
@@ -164,3 +170,103 @@ async def get_my_transactions(
         pageSize=page_size,
         pages=pages,
     )
+
+
+@router.post("/transactions/withdraw", response_model=UserWithdrawalResponseSchema)
+async def request_withdrawal(
+    req: UserWithdrawalRequestSchema,
+    user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> UserWithdrawalResponseSchema:
+    """
+    Submits a withdrawal request for the authenticated user:
+    - Idempotency key checked to prevent double-spending or replay.
+    - Concurrency-safe: acquires a row-level lock on the user's custodial account.
+    - Verifies available funds (settled minus reserved).
+    - Stages double-entry journal entries in PENDING status.
+    - Reserves funds immediately, reducing available balance.
+    """
+    ledger_service = LedgerService(db)
+    amount_dec = Decimal(str(req.amount))
+    tx = await ledger_service.create_withdrawal_request(
+        user_id=user.id,
+        asset_symbol=req.asset,
+        amount=amount_dec,
+        destination=req.destination,
+        idempotency_key=req.idempotencyKey,
+        source_service="PLATFORM_PORTAL",
+        notes=req.notes,
+    )
+    await db.commit()
+
+    meta = {}
+    if tx.metadata_json:
+        try:
+            meta = json.loads(tx.metadata_json) if isinstance(tx.metadata_json, str) else {}
+        except Exception:
+            meta = {}
+
+    masked_dest = meta.get(
+        "destination_masked",
+        req.destination[:4] + "..." + req.destination[-4:] if len(req.destination) > 8 else req.destination,
+    )
+
+    stmt_acct = (
+        select(AccountModel)
+        .join(AssetModel, AssetModel.id == AccountModel.asset_id)
+        .where(
+            AccountModel.user_id == user.id,
+            AssetModel.symbol == req.asset.upper(),
+            AccountModel.is_active.is_(True),
+        )
+    )
+    user_acct = (await db.execute(stmt_acct)).scalar_one_or_none()
+    reserved_str = "0"
+    available_str = "0"
+    if user_acct:
+        bals = await ledger_service.get_account_balances(user_acct.id)
+        reserved_str = f"{bals['reserved']:.{bals['decimals']}f}"
+        available_str = f"{bals['available']:.{bals['decimals']}f}"
+
+    return UserWithdrawalResponseSchema(
+        id=tx.id,
+        transactionRef=tx.transaction_ref,
+        status=tx.status,
+        asset=req.asset.upper(),
+        amount=str(amount_dec),
+        destinationMasked=masked_dest,
+        reservedBalance=reserved_str,
+        remainingAvailableBalance=available_str,
+        message=f"Withdrawal request {tx.transaction_ref} submitted successfully. Funds are reserved pending administrative review.",
+        createdAt=tx.created_at.isoformat(),
+    )
+
+
+@router.get("/transactions/{transaction_id}/audit-double-entry", response_model=TransactionDoubleEntryAuditSchema)
+async def audit_transaction_double_entry(
+    transaction_id: str,
+    user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> TransactionDoubleEntryAuditSchema:
+    """
+    Audits the double-entry integrity of a transaction:
+    - Verifies journal entries >= 2
+    - Verifies presence of both debits and credits
+    - Verifies USD balancing
+    - Verifies native asset balancing for single-currency transactions
+    """
+    ledger_service = LedgerService(db)
+    audit = await ledger_service.verify_double_entry_balance(transaction_id)
+    return TransactionDoubleEntryAuditSchema(
+        transactionId=audit["transactionId"],
+        transactionRef=audit["transactionRef"],
+        status=audit["status"],
+        entryCount=audit["entryCount"],
+        debitEntries=audit["debitEntries"],
+        creditEntries=audit["creditEntries"],
+        totalUsdDebits=audit["totalUsdDebits"],
+        totalUsdCredits=audit["totalUsdCredits"],
+        isUsdBalanced=audit["isUsdBalanced"],
+        isNativeBalanced=audit["isNativeBalanced"],
+    )
+

@@ -156,3 +156,23 @@ export interface AdminTransactionsListResponse {
   pageSize: number;
   totalPages: number;
 }
+
+export interface AdminInvestmentRecord {
+  id?: string | null;
+  userId: string;
+  hasRecord: boolean;
+  amount: string | null;
+  currency: string | null;
+  updatedByAdminId?: string | null;
+  updatedByAdminEmail?: string | null;
+  lastReason?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface AdminInvestmentRecordUpdateRequest {
+  amount: number | string;
+  currency?: string;
+  reason: string;
+}
+

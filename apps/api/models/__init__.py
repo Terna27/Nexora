@@ -6,6 +6,7 @@ from models.user import (
     PasswordResetTokenModel,
     AuthAuditEventModel,
     AdminAuditLogModel,
+    UserInvestmentRecordModel,
 )
 from models.financial import (
     LegalEntityModel,
@@ -30,6 +31,7 @@ __all__ = [
     "PasswordResetTokenModel",
     "AuthAuditEventModel",
     "AdminAuditLogModel",
+    "UserInvestmentRecordModel",
     "LegalEntityModel",
     "AssetModel",
     "AssetNetworkModel",

@@ -6,7 +6,7 @@ from sqlalchemy import select, func
 
 from database import get_db
 from routes.auth import get_current_user
-from models.user import UserModel
+from models.user import UserModel, UserInvestmentRecordModel
 from models.financial import (
     AccountModel,
     AccountBalanceModel,
@@ -20,6 +20,7 @@ from schemas.finance import (
     UserPortfolioResponse,
     UserAccountBalanceSchema,
     PortfolioMetricsSchema,
+    UserInvestmentRecordResponse,
 )
 
 router = APIRouter(tags=["Portfolio"])
@@ -139,3 +140,38 @@ async def get_my_portfolio(
             "accruedDailyYieldUsd",
         ],
     )
+
+
+@router.get("/users/me/investment-record", response_model=UserInvestmentRecordResponse)
+async def get_my_investment_record(
+    user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> UserInvestmentRecordResponse:
+    """
+    Authoritative investor endpoint retrieving their own admin-recorded investment amount.
+    - Identity is derived strictly from the authenticated server session.
+    - Investors cannot supply an arbitrary user ID or query other users' records.
+    - If no record has been created, an honest empty state (hasRecord: False) is returned.
+    """
+    stmt = select(UserInvestmentRecordModel).where(UserInvestmentRecordModel.user_id == user.id)
+    rec = (await db.execute(stmt)).scalars().first()
+
+    if not rec:
+        return UserInvestmentRecordResponse(
+            userId=user.id,
+            hasRecord=False,
+            amount=None,
+            currency=None,
+            updatedAt=None,
+        )
+
+    amount_str = f"{rec.amount:.2f}" if rec.currency in ["USD", "USDT"] else f"{rec.amount:.8f}".rstrip("0").rstrip(".")
+
+    return UserInvestmentRecordResponse(
+        userId=user.id,
+        hasRecord=True,
+        amount=amount_str,
+        currency=rec.currency,
+        updatedAt=rec.updated_at.isoformat() if rec.updated_at else None,
+    )
+

@@ -15,6 +15,7 @@ from models.user import (
     AdminAuditLogModel,
     EmailVerificationTokenModel,
     PasswordResetTokenModel,
+    UserInvestmentRecordModel,
 )
 from models.financial import (
     AccountModel,
@@ -43,6 +44,8 @@ from schemas.admin import (
     AdminTransactionsListResponse,
     AdminAuditLogSchema,
     AdminAuditLogsListResponse,
+    AdminInvestmentRecordResponse,
+    AdminInvestmentRecordUpdateRequest,
 )
 from schemas.finance import (
     UserAccountBalanceSchema,
@@ -867,6 +870,171 @@ async def anonymize_and_remove_user_account(
         message=f"User account '{old_email}' has been safely removed and anonymized. Financial records and audit logs are preserved.",
         targetId=user_id,
     )
+
+
+@router.get("/users/{user_id}/investment-record", response_model=AdminInvestmentRecordResponse)
+async def get_admin_user_investment_record(
+    user_id: str,
+    request: Request,
+    admin_user: UserModel = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> AdminInvestmentRecordResponse:
+    """
+    Get administrator-managed investment record for a specific user.
+    """
+    target_user = await db.get(UserModel, user_id)
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User with ID '{user_id}' was not found.",
+        )
+
+    stmt = select(UserInvestmentRecordModel).where(UserInvestmentRecordModel.user_id == user_id)
+    rec = (await db.execute(stmt)).scalars().first()
+
+    if not rec:
+        return AdminInvestmentRecordResponse(
+            id=None,
+            userId=user_id,
+            hasRecord=False,
+            amount=None,
+            currency=None,
+            updatedByAdminId=None,
+            updatedByAdminEmail=None,
+            lastReason=None,
+            createdAt=None,
+            updatedAt=None,
+        )
+
+    admin_email: Optional[str] = None
+    if rec.updated_by_admin_id:
+        admin_obj = await db.get(UserModel, rec.updated_by_admin_id)
+        if admin_obj:
+            admin_email = admin_obj.email
+
+    amount_str = f"{rec.amount:.2f}" if rec.currency in ["USD", "USDT"] else f"{rec.amount:.8f}".rstrip("0").rstrip(".")
+
+    return AdminInvestmentRecordResponse(
+        id=rec.id,
+        userId=user_id,
+        hasRecord=True,
+        amount=amount_str,
+        currency=rec.currency,
+        updatedByAdminId=rec.updated_by_admin_id,
+        updatedByAdminEmail=admin_email,
+        lastReason=rec.last_reason,
+        createdAt=rec.created_at.isoformat() if rec.created_at else None,
+        updatedAt=rec.updated_at.isoformat() if rec.updated_at else None,
+    )
+
+
+@router.put("/users/{user_id}/investment-record", response_model=AdminInvestmentRecordResponse)
+async def update_admin_user_investment_record(
+    user_id: str,
+    req: AdminInvestmentRecordUpdateRequest,
+    request: Request,
+    admin_user: UserModel = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> AdminInvestmentRecordResponse:
+    """
+    Create or update administrator-managed investment record for a specific user.
+    Ensures:
+    - Decimal-safe financial validation (amount >= 0).
+    - Supported platform currency check.
+    - Mandatory substantive audit reason (len >= 3).
+    - Durable audit log of Admin ID, Target User ID, Previous Amount, New Amount, Currency, Reason, Timestamp.
+    - Complete isolation from ledger accounts, balances, and journal entries.
+    """
+    target_user = await db.get(UserModel, user_id)
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User with ID '{user_id}' was not found.",
+        )
+
+    if req.amount < Decimal("0.00"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Investment amount must be greater than or equal to zero.",
+        )
+
+    if not req.reason or len(req.reason.strip()) < 3:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A substantive reason (at least 3 characters) is required for updating the investment amount.",
+        )
+
+    currency_clean = req.currency.strip().upper()
+    asset_stmt = select(AssetModel).where(AssetModel.symbol == currency_clean)
+    asset_res = await db.execute(asset_stmt)
+    asset = asset_res.scalars().first()
+    if not asset and currency_clean != "USD":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Currency '{currency_clean}' is not supported. Supported currencies include USD, USDT, BTC, ETH, SOL.",
+        )
+
+    stmt = select(UserInvestmentRecordModel).where(UserInvestmentRecordModel.user_id == user_id)
+    rec = (await db.execute(stmt)).scalars().first()
+
+    prev_amount = rec.amount if rec else None
+    now = datetime.now(timezone.utc)
+
+    if rec:
+        rec.amount = req.amount
+        rec.currency = currency_clean
+        rec.updated_by_admin_id = admin_user.id
+        rec.last_reason = req.reason.strip()
+        rec.updated_at = now
+    else:
+        rec = UserInvestmentRecordModel(
+            user_id=user_id,
+            amount=req.amount,
+            currency=currency_clean,
+            updated_by_admin_id=admin_user.id,
+            last_reason=req.reason.strip(),
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(rec)
+
+    ip = request.client.host if request.client else "unknown"
+    audit_details = json.dumps({
+        "previous_amount": str(prev_amount) if prev_amount is not None else None,
+        "new_amount": str(req.amount),
+        "currency": currency_clean,
+    })
+
+    await record_admin_audit_event(
+        db=db,
+        admin_user_id=admin_user.id,
+        action="ADMIN_USER_INVESTMENT_RECORD_UPDATE",
+        target_entity="user_investment_record",
+        target_id=user_id,
+        ip_address=ip,
+        outcome="SUCCESS",
+        reason=req.reason.strip(),
+        details=audit_details,
+    )
+
+    await db.commit()
+    await db.refresh(rec)
+
+    amount_str = f"{rec.amount:.2f}" if rec.currency in ["USD", "USDT"] else f"{rec.amount:.8f}".rstrip("0").rstrip(".")
+
+    return AdminInvestmentRecordResponse(
+        id=rec.id,
+        userId=user_id,
+        hasRecord=True,
+        amount=amount_str,
+        currency=rec.currency,
+        updatedByAdminId=rec.updated_by_admin_id,
+        updatedByAdminEmail=admin_user.email,
+        lastReason=rec.last_reason,
+        createdAt=rec.created_at.isoformat() if rec.created_at else None,
+        updatedAt=rec.updated_at.isoformat() if rec.updated_at else None,
+    )
+
 
 
 # =========================================================================

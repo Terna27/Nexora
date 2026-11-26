@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { cryptiqApi } from '@cryptiq/api-client';
-import { AssetInfo, SupportedAsset, LedgerEntry, UserPortfolioResponse, UserTransactionItem } from '@cryptiq/types';
+import { AssetInfo, SupportedAsset, LedgerEntry, UserPortfolioResponse, UserTransactionItem, UserInvestmentRecord } from '@cryptiq/types';
 
 import { DashboardSkeleton } from '@/components/dashboard/DashboardSkeleton';
 import { DashboardHeader, DashboardTab } from '@/components/dashboard/DashboardHeader';
@@ -12,6 +12,7 @@ import { DashboardSidebar, SidebarNavId } from '@/components/dashboard/Dashboard
 import { DynamicGreeting } from '@/components/dashboard/DynamicGreeting';
 import { TotalBalanceCard } from '@/components/dashboard/TotalBalanceCard';
 import { FinancialMetricsGrid } from '@/components/dashboard/FinancialMetricsGrid';
+import { MyInvestmentCard } from '@/components/dashboard/MyInvestmentCard';
 import { InvestmentPerformanceChart } from '@/components/dashboard/InvestmentPerformanceChart';
 import { InvestmentOverviewCard } from '@/components/dashboard/InvestmentOverviewCard';
 import { RecentActivitiesCard } from '@/components/dashboard/RecentActivitiesCard';
@@ -38,6 +39,7 @@ export default function DashboardPage() {
   const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
   const [portfolio, setPortfolio] = useState<UserPortfolioResponse | null>(null);
   const [personalTransactions, setPersonalTransactions] = useState<UserTransactionItem[]>([]);
+  const [investmentRecord, setInvestmentRecord] = useState<UserInvestmentRecord | null>(null);
   const [isDataLoading, setIsDataLoading] = useState(true);
 
   // Protected Route Check: Redirect unauthenticated users immediately
@@ -54,17 +56,19 @@ export default function DashboardPage() {
     let isMounted = true;
     async function loadData() {
       try {
-        const [quotesData, ledgerData, portfolioData, transactionsData] = await Promise.all([
+        const [quotesData, ledgerData, portfolioData, transactionsData, investmentRecordData] = await Promise.all([
           cryptiqApi.getAssetQuotes(),
           cryptiqApi.getLedgerEntries(),
           cryptiqApi.getUserPortfolio(),
           cryptiqApi.getUserTransactions(),
+          cryptiqApi.getUserInvestmentRecord(),
         ]);
         if (isMounted) {
           setQuotes(quotesData);
           setLedgerEntries(ledgerData);
           setPortfolio(portfolioData);
           setPersonalTransactions(transactionsData.items || []);
+          setInvestmentRecord(investmentRecordData);
         }
       } catch (err) {
         console.error('Error loading dashboard financial data:', err);
@@ -135,6 +139,9 @@ export default function DashboardPage() {
             {activeTab === 'Overview' && activeNav === 'overview' && (
               /* Asymmetric Bento Grid Layout */
               <div className="space-y-6">
+                {/* Prominent My Investment Summary Card */}
+                <MyInvestmentCard investmentRecord={investmentRecord} isLoading={isDataLoading} />
+
                 {/* TOP ROW: Three-Column Bento */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
                   {/* Card A: Total Balance + Nested Crypto Wallets */}

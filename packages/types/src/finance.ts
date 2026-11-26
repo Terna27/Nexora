@@ -158,3 +158,13 @@ export interface TransactionDoubleEntryAudit {
   isNativeBalanced: boolean;
 }
 
+export interface UserInvestmentRecord {
+  userId: string;
+  hasRecord: boolean;
+  amount: string | null;
+  currency: string | null;
+  updatedAt?: string | null;
+  disclaimer: string;
+}
+
+

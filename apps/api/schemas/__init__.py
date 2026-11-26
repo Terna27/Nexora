@@ -14,6 +14,11 @@ from schemas.admin import (
     AdminAuditLogSchema,
     AdminAuditLogsListResponse,
     AdminOverviewResponse,
+    AdminInvestmentRecordResponse,
+    AdminInvestmentRecordUpdateRequest,
+)
+from schemas.finance import (
+    UserInvestmentRecordResponse,
 )
 
 __all__ = [
@@ -30,4 +35,7 @@ __all__ = [
     "AdminAuditLogSchema",
     "AdminAuditLogsListResponse",
     "AdminOverviewResponse",
+    "AdminInvestmentRecordResponse",
+    "AdminInvestmentRecordUpdateRequest",
+    "UserInvestmentRecordResponse",
 ]

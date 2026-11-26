@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from schemas.finance import UserAccountBalanceSchema
@@ -142,3 +143,21 @@ class AdminTransactionsListResponse(BaseModel):
     page: int
     pageSize: int
     totalPages: int
+
+class AdminInvestmentRecordResponse(BaseModel):
+    id: Optional[str] = None
+    userId: str
+    hasRecord: bool
+    amount: Optional[str] = None
+    currency: Optional[str] = None
+    updatedByAdminId: Optional[str] = None
+    updatedByAdminEmail: Optional[str] = None
+    lastReason: Optional[str] = None
+    createdAt: Optional[str] = None
+    updatedAt: Optional[str] = None
+
+class AdminInvestmentRecordUpdateRequest(BaseModel):
+    amount: Decimal = Field(..., ge=0, description="Administrator recorded investment amount >= 0")
+    currency: str = Field(default="USD", min_length=2, max_length=10)
+    reason: str = Field(..., min_length=3, max_length=500, description="Mandatory audit reason")
+

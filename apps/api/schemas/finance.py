@@ -151,4 +151,13 @@ class TransactionDoubleEntryAuditSchema(BaseModel):
     isUsdBalanced: bool
     isNativeBalanced: bool
 
+class UserInvestmentRecordResponse(BaseModel):
+    userId: str
+    hasRecord: bool
+    amount: Optional[str] = None
+    currency: Optional[str] = None
+    updatedAt: Optional[str] = None
+    disclaimer: str = "Administrator-recorded investment reference. Does not constitute verified on-chain or ledger-deposited balances."
+
+
 

@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Index
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Index, Numeric, Text
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -105,4 +105,21 @@ class AdminAuditLogModel(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
 
     admin_user = relationship("UserModel", foreign_keys=[admin_user_id])
+
+
+class UserInvestmentRecordModel(Base):
+    __tablename__ = "user_investment_records"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
+    amount = Column(Numeric(precision=38, scale=18), nullable=False)
+    currency = Column(String(10), nullable=False, default="USD")
+    updated_by_admin_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    last_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    user = relationship("UserModel", foreign_keys=[user_id])
+    updated_by_admin = relationship("UserModel", foreign_keys=[updated_by_admin_id])
+
 

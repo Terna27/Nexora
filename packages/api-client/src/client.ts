@@ -36,6 +36,9 @@ import {
   UserWithdrawalResponse,
   AccountReconciliationResponse,
   TransactionDoubleEntryAudit,
+  AdminInvestmentRecord,
+  AdminInvestmentRecordUpdateRequest,
+  UserInvestmentRecord,
 } from '@cryptiq/types';
 import { ILLUSTRATIVE_ASSET_PRICES, INITIAL_ILLUSTRATIVE_LEDGER } from './mockData';
 
@@ -829,6 +832,67 @@ export class CryptiqApiClient {
       throw new Error(result.detail || 'Account reconciliation failed');
     }
     return result;
+  }
+
+  /**
+   * Admin: Get user investment record
+   */
+  async getAdminUserInvestmentRecord(userId: string): Promise<AdminInvestmentRecord | null> {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/v1/admin/users/${userId}/investment-record`, {
+        cache: 'no-store',
+        credentials: 'include',
+        headers: this.getAuthHeaders(),
+      });
+      if (!res.ok) {
+        return null;
+      }
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Admin: Create or update user investment record
+   */
+  async updateAdminUserInvestmentRecord(
+    userId: string,
+    data: AdminInvestmentRecordUpdateRequest
+  ): Promise<AdminInvestmentRecord> {
+    const res = await fetch(`${this.baseUrl}/api/v1/admin/users/${userId}/investment-record`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({ detail: 'Failed to update investment record.' }));
+      const msg = typeof errorData.detail === 'string'
+        ? errorData.detail
+        : (Array.isArray(errorData.detail) ? errorData.detail.map((d: any) => d.msg).join(', ') : 'Failed to update investment record.');
+      throw new Error(msg);
+    }
+    return await res.json();
+  }
+
+  /**
+   * Investor: Get authenticated investor's own investment record
+   */
+  async getUserInvestmentRecord(): Promise<UserInvestmentRecord | null> {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/v1/users/me/investment-record`, {
+        cache: 'no-store',
+        credentials: 'include',
+        headers: this.getAuthHeaders(),
+      });
+      if (!res.ok) {
+        return null;
+      }
+      return await res.json();
+    } catch {
+      return null;
+    }
   }
 }
 

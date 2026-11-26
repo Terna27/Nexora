@@ -10,6 +10,7 @@ import {
   AdminUserAccountsResponse,
   UserTransactionsListResponse,
   UserTransactionItem,
+  AdminInvestmentRecord,
 } from '@cryptiq/types';
 import {
   Users,
@@ -55,15 +56,25 @@ export default function AdminUserDetailPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  // Investment Management State
+  const [investmentRecord, setInvestmentRecord] = useState<AdminInvestmentRecord | null>(null);
+  const [editInvestmentOpen, setEditInvestmentOpen] = useState(false);
+  const [investAmountInput, setInvestAmountInput] = useState('');
+  const [investCurrencyInput, setInvestCurrencyInput] = useState('USD');
+  const [investReasonInput, setInvestReasonInput] = useState('');
+  const [investConfirmStep, setInvestConfirmStep] = useState(false);
+  const [investLoading, setInvestLoading] = useState(false);
+
   const loadData = useCallback(async () => {
     if (!userId) return;
     setLoading(true);
     setError(null);
     try {
-      const [userDetail, userAccts, userTxs] = await Promise.all([
+      const [userDetail, userAccts, userTxs, userInv] = await Promise.all([
         cryptiqApi.getAdminUserDetail(userId),
         cryptiqApi.getAdminUserAccounts(userId),
         cryptiqApi.getAdminUserTransactions(userId),
+        cryptiqApi.getAdminUserInvestmentRecord(userId),
       ]);
 
       if (!userDetail) {
@@ -72,6 +83,7 @@ export default function AdminUserDetailPage() {
         setUser(userDetail);
         setAccounts(userAccts);
         setTransactions(userTxs?.items || []);
+        setInvestmentRecord(userInv);
       }
     } catch (err: any) {
       setError(err.message || 'Failed to load user details.');
@@ -150,6 +162,50 @@ export default function AdminUserDetailPage() {
       setFeedback({ type: 'error', message: err.message || 'Failed to safely remove and anonymize account.' });
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleOpenEditInvestment = () => {
+    setInvestAmountInput(investmentRecord?.hasRecord && investmentRecord.amount ? investmentRecord.amount : '');
+    setInvestCurrencyInput(investmentRecord?.currency || 'USD');
+    setInvestReasonInput('');
+    setInvestConfirmStep(false);
+    setEditInvestmentOpen(true);
+  };
+
+  const handleSaveInvestmentRecord = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const num = parseFloat(investAmountInput);
+    if (isNaN(num) || num < 0) {
+      setFeedback({ type: 'error', message: 'Investment amount must be a valid number greater than or equal to 0.' });
+      return;
+    }
+    if (!investReasonInput.trim() || investReasonInput.trim().length < 3) {
+      setFeedback({ type: 'error', message: 'A substantive audit reason (at least 3 characters) is required.' });
+      return;
+    }
+
+    if (!investConfirmStep) {
+      setInvestConfirmStep(true);
+      return;
+    }
+
+    setInvestLoading(true);
+    setFeedback(null);
+    try {
+      const updated = await cryptiqApi.updateAdminUserInvestmentRecord(userId, {
+        amount: investAmountInput.trim(),
+        currency: investCurrencyInput,
+        reason: investReasonInput.trim(),
+      });
+      setInvestmentRecord(updated);
+      setFeedback({ type: 'success', message: `Investment amount successfully recorded as ${updated.amount} ${updated.currency}.` });
+      setEditInvestmentOpen(false);
+      setInvestConfirmStep(false);
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || 'Failed to update investment amount.' });
+    } finally {
+      setInvestLoading(false);
     }
   };
 
@@ -490,6 +546,85 @@ export default function AdminUserDetailPage() {
             <li><strong>Audit Logging:</strong> All administrative lifecycle changes are permanently logged to the PostgreSQL audit trail with admin attribution and reason.</li>
           </ul>
         </div>
+      </section>
+
+      {/* ========================================================================= */}
+      {/* PROMINENT INVESTMENT MANAGEMENT SECTION                                   */}
+      {/* ========================================================================= */}
+      <section className="bg-[#0D1117] border-2 border-indigo-500/30 rounded-2xl p-6 space-y-6 shadow-xl relative overflow-hidden">
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500" />
+
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-zinc-800/80 pb-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Sliders className="w-5 h-5 text-indigo-400" />
+              <h2 className="text-lg font-bold text-white tracking-tight">Investment Management</h2>
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono uppercase bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 font-semibold">
+                Staff Administrator Control
+              </span>
+            </div>
+            <p className="text-xs text-zinc-400">
+              Manage the investment amount recorded for this user and displayed on their dashboard. Changes require an audit reason and do not alter double-entry ledger balances.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleOpenEditInvestment}
+            disabled={actionLoading || isAnonymized}
+            className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-xs font-semibold text-white transition inline-flex items-center gap-2 shadow-lg shadow-indigo-600/20"
+          >
+            <Sliders className="w-4 h-4" />
+            <span>{investmentRecord?.hasRecord ? 'Edit Investment Amount' : 'Record Investment Amount'}</span>
+          </button>
+        </div>
+
+        {/* Current Investment Record Display */}
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <div className="p-4 rounded-xl bg-[#090C10] border border-zinc-800 space-y-1">
+            <div className="text-[10px] font-mono text-zinc-400 uppercase">Recorded Investment Amount</div>
+            {investmentRecord?.hasRecord && investmentRecord.amount !== null ? (
+              <div className="text-xl font-bold font-mono text-white flex items-baseline gap-1.5 mt-1">
+                <span>{investmentRecord.amount}</span>
+                <span className="text-xs font-mono text-indigo-400 font-semibold">{investmentRecord.currency}</span>
+              </div>
+            ) : (
+              <div className="text-xs text-zinc-500 italic mt-2">
+                No investment amount has been recorded yet.
+              </div>
+            )}
+          </div>
+
+          <div className="p-4 rounded-xl bg-[#090C10] border border-zinc-800 space-y-1">
+            <div className="text-[10px] font-mono text-zinc-400 uppercase">Currency</div>
+            <div className="text-sm font-semibold text-zinc-200 mt-1">
+              {investmentRecord?.hasRecord && investmentRecord.currency ? investmentRecord.currency : '—'}
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl bg-[#090C10] border border-zinc-800 space-y-1">
+            <div className="text-[10px] font-mono text-zinc-400 uppercase">Last Updated Date</div>
+            <div className="text-xs font-mono text-zinc-300 mt-1">
+              {investmentRecord?.updatedAt ? new Date(investmentRecord.updatedAt).toLocaleString() : 'Never'}
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl bg-[#090C10] border border-zinc-800 space-y-1">
+            <div className="text-[10px] font-mono text-zinc-400 uppercase">Administrator Responsible</div>
+            <div className="text-xs font-mono text-indigo-300 truncate mt-1" title={investmentRecord?.updatedByAdminEmail || ''}>
+              {investmentRecord?.updatedByAdminEmail || (investmentRecord?.hasRecord ? 'System Admin' : '—')}
+            </div>
+          </div>
+        </div>
+
+        {investmentRecord?.lastReason && (
+          <div className="p-3.5 rounded-xl bg-[#090C10] border border-zinc-800 text-xs text-zinc-400 flex items-start gap-2.5">
+            <Info className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5" />
+            <div className="leading-relaxed">
+              <strong className="text-zinc-300">Latest Recorded Reason:</strong> {investmentRecord.lastReason}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Tabs */}
@@ -878,6 +1013,147 @@ export default function AdminUserDetailPage() {
                 >
                   {actionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                   <span>Permanently Anonymize & Delete</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: EDIT INVESTMENT AMOUNT */}
+      {editInvestmentOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0D1117] border border-indigo-500/40 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-2 text-indigo-400 font-semibold text-sm">
+              <Sliders className="w-5 h-5" />
+              <span>{investmentRecord?.hasRecord ? 'Edit User Investment Amount' : 'Record User Investment Amount'}</span>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-[#090C10] border border-zinc-800 text-xs space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-zinc-400">Target User:</span>
+                <span className="font-semibold text-white">{user.fullName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-400">Target Email:</span>
+                <span className="font-mono text-amber-400">{user.email}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-400">Current Valuation:</span>
+                <span className="font-mono font-semibold text-indigo-300">
+                  {investmentRecord?.hasRecord && investmentRecord.amount !== null
+                    ? `${investmentRecord.amount} ${investmentRecord.currency}`
+                    : 'None (Unrecorded)'}
+                </span>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs text-indigo-200/90 space-y-1 leading-relaxed">
+              <div className="font-semibold flex items-center gap-1.5 text-indigo-300">
+                <Info className="w-4 h-4 flex-shrink-0" />
+                <span>Financial Integrity Notice</span>
+              </div>
+              <p>
+                This administrative reference value will be displayed directly on the user’s investor dashboard under <strong>My Investment</strong>. It does not alter wallet balances, pending withdrawals, or authoritative double-entry journal entries.
+              </p>
+            </div>
+
+            <form onSubmit={handleSaveInvestmentRecord} className="space-y-4">
+              {!investConfirmStep ? (
+                <>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="col-span-2 space-y-1.5">
+                      <label className="text-[11px] font-mono uppercase text-zinc-400">Investment Amount (&ge; 0)</label>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        required
+                        value={investAmountInput}
+                        onChange={(e) => setInvestAmountInput(e.target.value)}
+                        placeholder="e.g. 250000.00"
+                        className="w-full bg-[#090C10] border border-zinc-800 rounded-xl p-3 text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-indigo-400 font-mono"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-mono uppercase text-zinc-400">Currency</label>
+                      <select
+                        value={investCurrencyInput}
+                        onChange={(e) => setInvestCurrencyInput(e.target.value)}
+                        className="w-full bg-[#090C10] border border-zinc-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-indigo-400 font-mono"
+                      >
+                        <option value="USD">USD</option>
+                        <option value="USDT">USDT</option>
+                        <option value="BTC">BTC</option>
+                        <option value="ETH">ETH</option>
+                        <option value="SOL">SOL</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-mono uppercase text-zinc-400">Reason for Entry / Change (Required)</label>
+                    <textarea
+                      required
+                      rows={2}
+                      value={investReasonInput}
+                      onChange={(e) => setInvestReasonInput(e.target.value)}
+                      placeholder="e.g. Institutional subscription agreement tranche #A-4819 verified by custodian"
+                      className="w-full bg-[#090C10] border border-zinc-800 rounded-xl p-3 text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-indigo-400"
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200 space-y-2">
+                  <div className="font-bold flex items-center gap-1.5 text-amber-300">
+                    <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                    <span>Confirm Administrative Record Change</span>
+                  </div>
+                  <p>
+                    Are you sure you want to record an investment amount of{' '}
+                    <strong className="text-white font-mono">{investAmountInput} {investCurrencyInput}</strong> for{' '}
+                    <strong className="text-white">{user.email}</strong>?
+                  </p>
+                  <p className="text-[11px] text-zinc-400 font-mono">
+                    Audit Reason: &quot;{investReasonInput}&quot;
+                  </p>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  disabled={investLoading}
+                  onClick={() => {
+                    if (investConfirmStep) {
+                      setInvestConfirmStep(false);
+                    } else {
+                      setEditInvestmentOpen(false);
+                    }
+                  }}
+                  className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300 transition"
+                >
+                  {investConfirmStep ? 'Back to Edit' : 'Cancel'}
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={
+                    investLoading ||
+                    !investAmountInput ||
+                    parseFloat(investAmountInput) < 0 ||
+                    isNaN(parseFloat(investAmountInput)) ||
+                    investReasonInput.trim().length < 3
+                  }
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold text-white transition flex items-center gap-1.5 shadow-lg shadow-indigo-600/20"
+                >
+                  {investLoading ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                  )}
+                  <span>{investConfirmStep ? 'Confirm & Save Investment Record' : 'Review & Save'}</span>
                 </button>
               </div>
             </form>

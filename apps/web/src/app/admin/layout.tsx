@@ -86,6 +86,7 @@ export default function AdminLayout({
     { href: '/admin/withdrawals', label: 'Withdrawals', icon: ArrowUpRight, exact: false },
     { href: '/admin/transactions', label: 'Transactions', icon: ArrowLeftRight, exact: false },
     { href: '/admin/audit-logs', label: 'Audit Logs', icon: FileText, exact: false },
+    { href: '/admin/security', label: 'Account / Security', icon: ShieldCheck, exact: false },
   ];
 
   return (

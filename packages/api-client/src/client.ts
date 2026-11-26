@@ -39,6 +39,7 @@ import {
   AdminInvestmentRecord,
   AdminInvestmentRecordUpdateRequest,
   UserInvestmentRecord,
+  PlatformInvestmentTotal,
 } from '@cryptiq/types';
 import { ILLUSTRATIVE_ASSET_PRICES, INITIAL_ILLUSTRATIVE_LEDGER } from './mockData';
 
@@ -893,6 +894,26 @@ export class CryptiqApiClient {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Platform: Get authoritative platform-wide investment total converted into requested currency
+   */
+  async getPlatformInvestmentTotal(currency: string = 'USD'): Promise<PlatformInvestmentTotal> {
+    const params = new URLSearchParams({ currency: currency.toUpperCase() });
+    const res = await fetch(`${this.baseUrl}/api/v1/platform/investment-total?${params.toString()}`, {
+      cache: 'no-store',
+      credentials: 'include',
+      headers: this.getAuthHeaders(),
+    });
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({ detail: 'Failed to retrieve platform investment total.' }));
+      const msg = typeof errorData.detail === 'string'
+        ? errorData.detail
+        : (Array.isArray(errorData.detail) ? errorData.detail.map((d: any) => d.msg).join(', ') : 'Failed to retrieve platform investment total.');
+      throw new Error(msg);
+    }
+    return await res.json();
   }
 }
 

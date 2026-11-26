@@ -167,4 +167,20 @@ export interface UserInvestmentRecord {
   disclaimer: string;
 }
 
+export interface PlatformInvestmentTotal {
+  isAvailable: boolean;
+  baseCurrency: string;
+  baseAmountUsd: string | null;
+  targetCurrency: string;
+  convertedAmount: string | null;
+  formattedDisplay: string | null;
+  exchangeRate: string | null;
+  rateSource: string;
+  valuationTimestamp: string;
+  statusMessage: string;
+  disclaimer: string;
+  supportedCurrencies: string[];
+}
+
+
 

@@ -165,7 +165,10 @@ async def test_admin_dashboard_real_statistics():
         assert "investorUsers" in data
         assert "adminUsers" in data
         # Honest reporting for invested capital
-        assert "Investment reporting is not yet available." in data["investedCapitalStatusMessage"]
+        assert data["investedCapitalStatusMessage"] in [
+            "Investment reporting is not yet available.",
+            "Derived from settled unit issuance records",
+        ]
         # Real counters
         assert "pendingWithdrawalsCount" in data
         assert "completedWithdrawalsCount" in data

@@ -12,6 +12,7 @@ import { DashboardSidebar, SidebarNavId } from '@/components/dashboard/Dashboard
 import { DynamicGreeting } from '@/components/dashboard/DynamicGreeting';
 import { TotalBalanceCard } from '@/components/dashboard/TotalBalanceCard';
 import { FinancialMetricsGrid } from '@/components/dashboard/FinancialMetricsGrid';
+import { TotalInvestedAcrossNexoraCard } from '@/components/dashboard/TotalInvestedAcrossNexoraCard';
 import { MyInvestmentCard } from '@/components/dashboard/MyInvestmentCard';
 import { InvestmentPerformanceChart } from '@/components/dashboard/InvestmentPerformanceChart';
 import { InvestmentOverviewCard } from '@/components/dashboard/InvestmentOverviewCard';
@@ -139,8 +140,8 @@ export default function DashboardPage() {
             {activeTab === 'Overview' && activeNav === 'overview' && (
               /* Asymmetric Bento Grid Layout */
               <div className="space-y-6">
-                {/* Prominent My Investment Summary Card */}
-                <MyInvestmentCard investmentRecord={investmentRecord} isLoading={isDataLoading} />
+                {/* Prominent Global Platform Investment Metric Card */}
+                <TotalInvestedAcrossNexoraCard />
 
                 {/* TOP ROW: Three-Column Bento */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
@@ -274,6 +275,14 @@ export default function DashboardPage() {
                         {new Date(user.createdAt).toLocaleDateString()}
                       </span>
                     </div>
+                  </div>
+
+                  {/* Individual Administrative Record Note */}
+                  <div className="mt-6 pt-6 border-t border-light-border dark:border-dark-border">
+                    <h3 className="text-xs font-mono uppercase tracking-wider text-[#64748B] mb-3">
+                      Administrative Reference Amount
+                    </h3>
+                    <MyInvestmentCard investmentRecord={investmentRecord} isLoading={isDataLoading} />
                   </div>
                 </div>
               </div>

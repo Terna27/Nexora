@@ -54,12 +54,23 @@ export class CryptiqApiClient {
     const defaultProdUrl = 'https://nexora-edz1.onrender.com';
     let resolvedUrl = baseUrl || envUrl || defaultProdUrl;
     if (typeof window !== 'undefined') {
+      const isHttps = window.location.protocol === 'https:';
+      const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
       try {
         const override = localStorage.getItem('nexora_api_url');
         if (override) {
-          resolvedUrl = override;
+          const isOverrideLocal = override.includes('localhost') || override.includes('127.0.0.1');
+          if ((isHttps && override.startsWith('http://') && !override.startsWith('https://')) || (!isLocalhost && isOverrideLocal)) {
+            localStorage.removeItem('nexora_api_url');
+          } else {
+            resolvedUrl = override;
+          }
         }
       } catch {}
+
+      if (!isLocalhost && (!envUrl || envUrl.includes('localhost') || envUrl.includes('127.0.0.1'))) {
+        resolvedUrl = defaultProdUrl;
+      }
     }
     if (resolvedUrl.endsWith('/')) {
       resolvedUrl = resolvedUrl.slice(0, -1);
@@ -75,6 +86,40 @@ export class CryptiqApiClient {
     }
   }
 
+  public getBaseUrl(): string {
+    const envUrl = typeof process !== 'undefined' && process.env ? process.env.NEXT_PUBLIC_API_URL : undefined;
+    const defaultProdUrl = 'https://nexora-edz1.onrender.com';
+
+    if (typeof window !== 'undefined') {
+      const isHttps = window.location.protocol === 'https:';
+      const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+      try {
+        const override = localStorage.getItem('nexora_api_url');
+        if (override) {
+          const isOverrideLocal = override.includes('localhost') || override.includes('127.0.0.1');
+          if ((isHttps && override.startsWith('http://') && !override.startsWith('https://')) || (!isLocalhost && isOverrideLocal)) {
+            localStorage.removeItem('nexora_api_url');
+          } else {
+            let clean = override.trim();
+            if (clean.endsWith('/')) clean = clean.slice(0, -1);
+            return clean;
+          }
+        }
+      } catch {}
+
+      if (!isLocalhost && (!envUrl || envUrl.includes('localhost') || envUrl.includes('127.0.0.1'))) {
+        return defaultProdUrl;
+      }
+    }
+
+    let resolved = this.baseUrl || envUrl || defaultProdUrl;
+    if (resolved.endsWith('/')) {
+      resolved = resolved.slice(0, -1);
+    }
+    return resolved;
+  }
+
   setBaseUrl(url: string) {
     this.baseUrl = url.endsWith('/') ? url.slice(0, -1) : url;
     if (typeof window !== 'undefined') {
@@ -86,13 +131,14 @@ export class CryptiqApiClient {
 
   private getAuthHeaders(extraHeaders: Record<string, string> = {}): Record<string, string> {
     const headers: Record<string, string> = { ...extraHeaders };
-    if (!this.token && typeof window !== 'undefined') {
+    let token = this.token;
+    if (typeof window !== 'undefined') {
       try {
-        this.token = localStorage.getItem('nexora_token');
+        token = localStorage.getItem('nexora_token') || token;
       } catch {}
     }
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
     return headers;
   }
@@ -903,16 +949,39 @@ export class CryptiqApiClient {
    */
   async getPlatformInvestmentTotal(currency: string = 'USD'): Promise<PlatformInvestmentTotal> {
     const params = new URLSearchParams({ currency: currency.toUpperCase() });
-    const res = await fetch(`${this.baseUrl}/api/v1/platform/investment-total?${params.toString()}`, {
-      cache: 'no-store',
-      credentials: 'include',
-      headers: this.getAuthHeaders(),
-    });
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const baseUrl = this.getBaseUrl();
+    const defaultProdUrl = 'https://nexora-edz1.onrender.com';
+
+    let res: Response;
+    try {
+      res = await fetch(`${baseUrl}/api/v1/platform/investment-total${query}`, {
+        cache: 'no-store',
+        credentials: 'include',
+        headers: this.getAuthHeaders(),
+      });
+    } catch (err: any) {
+      if (baseUrl !== defaultProdUrl) {
+        try {
+          const fallbackRes = await fetch(`${defaultProdUrl}/api/v1/platform/investment-total${query}`, {
+            cache: 'no-store',
+            credentials: 'include',
+            headers: this.getAuthHeaders(),
+          });
+          if (fallbackRes.ok) {
+            this.setBaseUrl(defaultProdUrl);
+            return await fallbackRes.json();
+          }
+        } catch {}
+      }
+      throw new Error('Unable to connect to the platform API server. Please check your network connection.');
+    }
+
     if (!res.ok) {
-      const errorData = await res.json().catch(() => ({ detail: 'Failed to retrieve platform investment total.' }));
+      const errorData = await res.json().catch(() => ({ detail: `HTTP ${res.status}: Failed to retrieve platform investment total.` }));
       const msg = typeof errorData.detail === 'string'
         ? errorData.detail
-        : (Array.isArray(errorData.detail) ? errorData.detail.map((d: any) => d.msg).join(', ') : 'Failed to retrieve platform investment total.');
+        : (Array.isArray(errorData.detail) ? errorData.detail.map((d: any) => d.msg).join(', ') : `HTTP ${res.status}: Failed to retrieve platform investment total.`);
       throw new Error(msg);
     }
     return await res.json();
@@ -922,16 +991,38 @@ export class CryptiqApiClient {
    * Admin: Retrieve the current administrator-configured global platform investment configuration
    */
   async getAdminPlatformInvestmentConfig(): Promise<AdminPlatformInvestmentConfig> {
-    const res = await fetch(`${this.baseUrl}/api/v1/admin/platform/investment-configuration`, {
-      cache: 'no-store',
-      credentials: 'include',
-      headers: this.getAuthHeaders(),
-    });
+    const baseUrl = this.getBaseUrl();
+    const defaultProdUrl = 'https://nexora-edz1.onrender.com';
+
+    let res: Response;
+    try {
+      res = await fetch(`${baseUrl}/api/v1/admin/platform/investment-configuration`, {
+        cache: 'no-store',
+        credentials: 'include',
+        headers: this.getAuthHeaders(),
+      });
+    } catch (err: any) {
+      if (baseUrl !== defaultProdUrl) {
+        try {
+          const fallbackRes = await fetch(`${defaultProdUrl}/api/v1/admin/platform/investment-configuration`, {
+            cache: 'no-store',
+            credentials: 'include',
+            headers: this.getAuthHeaders(),
+          });
+          if (fallbackRes.ok) {
+            this.setBaseUrl(defaultProdUrl);
+            return await fallbackRes.json();
+          }
+        } catch {}
+      }
+      throw new Error('Unable to connect to the platform API server. Please check your network connection.');
+    }
+
     if (!res.ok) {
-      const errorData = await res.json().catch(() => ({ detail: 'Failed to retrieve platform investment configuration.' }));
+      const errorData = await res.json().catch(() => ({ detail: `HTTP ${res.status}: Failed to retrieve platform investment configuration.` }));
       const msg = typeof errorData.detail === 'string'
         ? errorData.detail
-        : (Array.isArray(errorData.detail) ? errorData.detail.map((d: any) => d.msg).join(', ') : 'Failed to retrieve platform investment configuration.');
+        : (Array.isArray(errorData.detail) ? errorData.detail.map((d: any) => d.msg).join(', ') : `HTTP ${res.status}: Failed to retrieve platform investment configuration.`);
       throw new Error(msg);
     }
     return await res.json();
@@ -943,17 +1034,40 @@ export class CryptiqApiClient {
   async updateAdminPlatformInvestmentConfig(
     data: AdminPlatformInvestmentUpdateRequest
   ): Promise<AdminPlatformInvestmentConfig> {
-    const res = await fetch(`${this.baseUrl}/api/v1/admin/platform/investment-configuration`, {
-      method: 'PUT',
-      credentials: 'include',
-      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify(data),
-    });
+    const baseUrl = this.getBaseUrl();
+    const defaultProdUrl = 'https://nexora-edz1.onrender.com';
+
+    let res: Response;
+    try {
+      res = await fetch(`${baseUrl}/api/v1/admin/platform/investment-configuration`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(data),
+      });
+    } catch (err: any) {
+      if (baseUrl !== defaultProdUrl) {
+        try {
+          const fallbackRes = await fetch(`${defaultProdUrl}/api/v1/admin/platform/investment-configuration`, {
+            method: 'PUT',
+            credentials: 'include',
+            headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify(data),
+          });
+          if (fallbackRes.ok) {
+            this.setBaseUrl(defaultProdUrl);
+            return await fallbackRes.json();
+          }
+        } catch {}
+      }
+      throw new Error('Unable to connect to the platform API server. Please check your network connection.');
+    }
+
     if (!res.ok) {
-      const errorData = await res.json().catch(() => ({ detail: 'Failed to update platform investment configuration.' }));
+      const errorData = await res.json().catch(() => ({ detail: `HTTP ${res.status}: Failed to update platform investment configuration.` }));
       const msg = typeof errorData.detail === 'string'
         ? errorData.detail
-        : (Array.isArray(errorData.detail) ? errorData.detail.map((d: any) => d.msg).join(', ') : 'Failed to update platform investment configuration.');
+        : (Array.isArray(errorData.detail) ? errorData.detail.map((d: any) => d.msg).join(', ') : `HTTP ${res.status}: Failed to update platform investment configuration.`);
       throw new Error(msg);
     }
     return await res.json();

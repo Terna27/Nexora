@@ -149,12 +149,22 @@ export const GlobalPlatformInvestmentSection: React.FC = () => {
 
       {/* Notifications */}
       {error && (
-        <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/30 text-xs text-red-300 flex items-start gap-2.5">
-          <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="font-semibold text-red-200">Operation Error</p>
-            <p className="text-red-300/90 mt-0.5">{error}</p>
+        <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/30 text-xs text-red-300 flex items-start justify-between gap-3">
+          <div className="flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-red-200">Operation Error</p>
+              <p className="text-red-300/90 mt-0.5">{error}</p>
+            </div>
           </div>
+          <button
+            onClick={loadConfiguration}
+            disabled={loading}
+            className="px-3 py-1.5 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-200 font-semibold transition flex-shrink-0 text-xs flex items-center gap-1.5 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+            <span>Retry</span>
+          </button>
         </div>
       )}
 

@@ -247,6 +247,9 @@ async def test_investors_receive_identical_global_amount_and_conversions():
         assert Decimal(data_alice["convertedAmount"]) == Decimal("8000000.00")
         assert data_alice["targetCurrency"] == "USD"
         assert "$8,000,000.00 USD" in data_alice["formattedDisplay"]
+        # Administrative privacy check: investor endpoint must not expose admin email or audit reasons
+        assert "updatedByAdminEmail" not in data_alice or data_alice.get("updatedByAdminEmail") is None
+        assert "lastReason" not in data_alice or data_alice.get("lastReason") is None
 
         # 2. Bob queries platform total (must be IDENTICAL to Alice)
         res_bob = await ac.get("/api/v1/platform/investment-total?currency=USD", headers=headers_bob)

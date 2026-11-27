@@ -30,8 +30,6 @@ class PlatformInvestmentTotalResponse(BaseModel):
     rateSource: str
     valuationTimestamp: str
     updatedAt: Optional[str] = None
-    updatedByAdminEmail: Optional[str] = None
-    lastReason: Optional[str] = None
     statusMessage: str
     disclaimer: str
     supportedCurrencies: List[str]
@@ -49,6 +47,7 @@ async def get_platform_investment_total(
     - Identical underlying global amount returned to every investor.
     - Never uses individual user investment records or wallet balances.
     - Converted into the investor's selected display currency (USD, EUR, GBP, NGN, USDT, BTC, ETH, SOL).
+    - Protects administrative privacy: does not expose internal admin emails or audit notes to investors.
     - Returns an honest unconfigured state if no amount has been configured yet.
     """
     currency_clean = currency.upper().strip()
@@ -63,16 +62,15 @@ async def get_platform_investment_total(
     now_iso = datetime.now(timezone.utc).isoformat()
     supported_keys = list(SUPPORTED_CURRENCIES.keys())
 
-    # Query latest platform investment configuration with admin email
+    # Query latest platform investment configuration
     stmt = (
-        select(PlatformInvestmentConfigurationModel, UserModel.email)
-        .outerjoin(UserModel, UserModel.id == PlatformInvestmentConfigurationModel.updated_by_admin_id)
+        select(PlatformInvestmentConfigurationModel)
         .order_by(PlatformInvestmentConfigurationModel.updated_at.desc())
         .limit(1)
     )
-    row = (await db.execute(stmt)).first()
+    config = (await db.execute(stmt)).scalars().first()
 
-    if not row:
+    if not config:
         # Honest unconfigured state
         return PlatformInvestmentTotalResponse(
             isConfigured=False,
@@ -86,14 +84,10 @@ async def get_platform_investment_total(
             rateSource=rate_info["source"],
             valuationTimestamp=now_iso,
             updatedAt=None,
-            updatedByAdminEmail=None,
-            lastReason=None,
             statusMessage="Global platform investment amount has not been configured yet.",
             disclaimer="Platform-wide reported investment figure managed administratively for institutional reporting. Does not alter double-entry ledger balances.",
             supportedCurrencies=supported_keys,
         )
-
-    config, admin_email = row
 
     base_curr = config.currency.upper()
     amount_dec = Decimal(str(config.amount))
@@ -137,8 +131,6 @@ async def get_platform_investment_total(
         rateSource=rate_info["source"],
         valuationTimestamp=now_iso,
         updatedAt=config.updated_at.isoformat() if config.updated_at else None,
-        updatedByAdminEmail=admin_email,
-        lastReason=config.last_reason,
         statusMessage="Administrator-managed global platform investment reporting",
         disclaimer="Platform-wide reported investment figure managed administratively for institutional reporting. Does not alter double-entry ledger balances.",
         supportedCurrencies=supported_keys,

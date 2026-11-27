@@ -180,8 +180,6 @@ export interface PlatformInvestmentTotal {
   rateSource: string;
   valuationTimestamp: string;
   updatedAt?: string | null;
-  updatedByAdminEmail?: string | null;
-  lastReason?: string | null;
   statusMessage: string;
   disclaimer: string;
   supportedCurrencies: string[];
